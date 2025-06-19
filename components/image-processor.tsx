@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { ImageUploader } from "@/components/image-uploader"
 import { ImagePreview } from "@/components/image-preview"
-import { processImages } from "@/lib/actions"
 import { Loader2, Download, CheckCircle, AlertCircle } from "lucide-react"
 import { upload } from "@vercel/blob/client"
 
@@ -25,7 +24,6 @@ export function ImageProcessor() {
   const [csvUrl, setCsvUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
-  const [analysisResults, setAnalysisResults] = useState<Array<{ date: string; time: string }> | null>(null)
 
   const handleUpload = (newImages: UploadedImage[]) => {
     const imagesWithStatus = newImages.map((img) => ({
@@ -87,13 +85,27 @@ export function ImageProcessor() {
       const uploadedImages = await Promise.all(uploadPromises)
       const imageUrls = uploadedImages.map((img) => img.blobUrl!).filter(Boolean)
 
-      // Then process the uploaded image URLs
-      const result = await processImages(imageUrls)
-      setCsvUrl(result.csvUrl)
-      setAnalysisResults(result.dateTimeData) // Store the date/time array
+      // Call the new analyze-images API
+      const response = await fetch("/api/analyze-images", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ imageUrls }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.statusText}`)
+      }
+
+      // Create a blob URL from the CSV response
+      const csvBlob = await response.blob()
+      const csvUrl = URL.createObjectURL(csvBlob)
+
+      setCsvUrl(csvUrl)
       setStatus("success")
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to process images")
+      setError(err instanceof Error ? err.message : "Failed to analyze images")
       setStatus("error")
     }
   }
@@ -103,7 +115,6 @@ export function ImageProcessor() {
     setStatus("idle")
     setCsvUrl(null)
     setError(null)
-    setAnalysisResults(null)
   }
 
   return (
@@ -139,39 +150,16 @@ export function ImageProcessor() {
             </div>
           )}
 
-          {status === "success" && analysisResults && (
+          {status === "success" && (
             <div className="bg-green-50 p-4 rounded-md">
-              <div className="flex items-start gap-3 mb-4">
+              <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-500 mt-0.5" />
                 <div>
-                  <h4 className="font-medium text-green-800">Processing complete</h4>
+                  <h4 className="font-medium text-green-800">Analysis complete</h4>
                   <p className="text-green-700 text-sm">
-                    Extracted date and time information from {analysisResults.length} images.
+                    Successfully analyzed {images.length} images and extracted weather data including timestamps, wind
+                    direction, weather conditions, and temperature trends.
                   </p>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <h5 className="font-medium text-green-800 mb-2">Extracted Data:</h5>
-                <div className="bg-white rounded border max-h-40 overflow-y-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-3 py-2 text-left">Image</th>
-                        <th className="px-3 py-2 text-left">Date</th>
-                        <th className="px-3 py-2 text-left">Time</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {analysisResults.map((result, index) => (
-                        <tr key={index} className="border-t">
-                          <td className="px-3 py-2">Image {index + 1}</td>
-                          <td className="px-3 py-2">{result.date}</td>
-                          <td className="px-3 py-2">{result.time}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
               </div>
             </div>
