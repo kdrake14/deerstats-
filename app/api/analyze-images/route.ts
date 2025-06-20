@@ -118,7 +118,9 @@ export async function POST(request: NextRequest) {
 
         // Fetch weather data for the timestamp
         const weatherData = await fetchWeatherData(timestamp, lat, lon, apiKey)
+        console.log(weatherData)
         const priorWeatherData = await fetchWeatherData(sixHoursPriorTimestamp, lat, lon, apiKey)
+        console.log(priorWeatherData)
 
         const currentWeather = weatherData.current
         const priorWeather = priorWeatherData.current
