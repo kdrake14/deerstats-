@@ -3,7 +3,6 @@ import { openai } from "@ai-sdk/openai"
 import { z } from "zod"
 import type { NextRequest } from "next/server"
 import axios from "axios"
-import { format } from "date-fns"
 
 const DateTimeSchema = z.object({
   date: z.string().describe("The date found in the image in YYYY-MM-DD format, or 'not found' if no date is visible"),
@@ -49,9 +48,14 @@ async function fetchWeatherData(timestamp: number, lat: number, lon: number, api
   const url = `https://api.openweathermap.org/data/3.0/onecall/timemachine?lat=${lat}&lon=${lon}&dt=${timestamp}&appid=${apiKey}`
   try {
     const response = await axios.get(url)
+    console.log(`Weather API response for timestamp ${timestamp}:`, JSON.stringify(response.data, null, 2))
     return response.data
   } catch (error) {
     console.error(`Error fetching weather data for timestamp ${timestamp}:`, error)
+    if (axios.isAxiosError(error)) {
+      console.error("Response status:", error.response?.status)
+      console.error("Response data:", error.response?.data)
+    }
     throw error
   }
 }
@@ -122,18 +126,27 @@ export async function POST(request: NextRequest) {
         const priorWeatherData = await fetchWeatherData(sixHoursPriorTimestamp, lat, lon, apiKey)
         console.log(priorWeatherData)
 
-        const currentWeather = weatherData.current
-        const priorWeather = priorWeatherData.current
+        const currentWeather = weatherData.data[0]
+        const priorWeather = priorWeatherData.data[0]
 
         // Extract wind direction
         const windDeg = currentWeather.wind_deg
-        const windDirection = windDeg >= 337.5 || windDeg < 22.5 ? "N" :
-                              windDeg < 67.5 ? "NE" :
-                              windDeg < 112.5 ? "E" :
-                              windDeg < 157.5 ? "SE" :
-                              windDeg < 202.5 ? "S" :
-                              windDeg < 247.5 ? "SW" :
-                              windDeg < 292.5 ? "W" : "NW"
+        const windDirection =
+          windDeg >= 337.5 || windDeg < 22.5
+            ? "N"
+            : windDeg < 67.5
+              ? "NE"
+              : windDeg < 112.5
+                ? "E"
+                : windDeg < 157.5
+                  ? "SE"
+                  : windDeg < 202.5
+                    ? "S"
+                    : windDeg < 247.5
+                      ? "SW"
+                      : windDeg < 292.5
+                        ? "W"
+                        : "NW"
 
         // Extract weather description
         const weatherDescription = currentWeather.weather[0]?.description || "N/A"
@@ -180,10 +193,14 @@ export async function POST(request: NextRequest) {
     const results = await runInBatches(imageUrls, 3, analyzeImage)
 
     // Generate CSV content
-    const csvHeader = "Image Index,Image URL,Date,Time,Wind Direction,Weather,Weather 6 Hours Prior,Temperature (F),Temperature Trend,Pressure Trend\n"
-    const csvRows = results.map(result => 
-      `${result.imageIndex},"${result.imageUrl}",${result.date},${result.time},${result.windDirection},${result.weather},${result.weatherSixHoursPrior},${result.temperature},${result.tempTrend},${result.pressureTrend}`
-    ).join("\n")
+    const csvHeader =
+      "Image Index,Image URL,Date,Time,Wind Direction,Weather,Weather 6 Hours Prior,Temperature (F),Temperature Trend,Pressure Trend\n"
+    const csvRows = results
+      .map(
+        (result) =>
+          `${result.imageIndex},"${result.imageUrl}",${result.date},${result.time},${result.windDirection},${result.weather},${result.weatherSixHoursPrior},${result.temperature},${result.tempTrend},${result.pressureTrend}`,
+      )
+      .join("\n")
     const csvContent = csvHeader + csvRows
 
     return new Response(csvContent, {
