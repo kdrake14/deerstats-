@@ -179,7 +179,7 @@ async function generatePDF(results: any[]) {
   // Load logo
   let logoDataUrl = ""
   try {
-    const logoResponse = await fetch("/deer-stats-logo.png")
+    const logoResponse = await fetch("https://www.deerstats.com/deer-stats-logo.png")
     if (logoResponse.ok) {
       const logoBuffer = await logoResponse.arrayBuffer()
       const logoBase64 = Buffer.from(logoBuffer).toString("base64")
