@@ -6,6 +6,7 @@ import axios from "axios"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 
+// Define schemas for validation
 const DateTimeSchema = z.object({
   date: z.string().describe("The date found in the image in YYYY-MM-DD format, or 'not found' if no date is visible"),
   time: z.string().describe("The time found in the image in HH:MM format, or 'not found' if no time is visible"),
@@ -15,7 +16,7 @@ const RequestSchema = z.object({
   imageUrls: z.array(z.string().url()),
 })
 
-// Helper function to run tasks in batches
+// Helper to run tasks in batches
 async function runInBatches<T>(
   items: string[],
   batchSize: number,
@@ -30,22 +31,22 @@ async function runInBatches<T>(
   return results
 }
 
-// Helper function to convert temperature from Kelvin to Fahrenheit
+// Convert Kelvin to Fahrenheit
 const kelvinToFahrenheit = (kelvin: number): number => {
   return Math.round(((kelvin - 273.15) * 9) / 5 + 32)
 }
 
-// Helper function to determine if temperature is rising or dropping
-const getTemperatureTrend = (currentTemp: number, previousTemp: number): string => {
-  return currentTemp > previousTemp ? "Rising" : currentTemp < previousTemp ? "Falling" : "Stable"
+// Determine trend of temperature
+const getTemperatureTrend = (currentKelvin: number, previousKelvin: number): string => {
+  return currentKelvin > previousKelvin ? "Rising" : currentKelvin < previousKelvin ? "Falling" : "Stable"
 }
 
-// Helper function to determine if pressure is rising or dropping
+// Determine trend of pressure
 const getPressureTrend = (currentPressure: number, previousPressure: number): string => {
   return currentPressure > previousPressure ? "Rising" : currentPressure < previousPressure ? "Falling" : "Stable"
 }
 
-// Helper function to fetch weather data from OpenWeatherMap
+// Fetch weather data from OpenWeatherMap
 async function fetchWeatherData(timestamp: number, lat: number, lon: number, apiKey: string) {
   const url = `https://api.openweathermap.org/data/3.0/onecall/timemachine?lat=${lat}&lon=${lon}&dt=${timestamp}&appid=${apiKey}`
   try {
@@ -62,54 +63,67 @@ async function fetchWeatherData(timestamp: number, lat: number, lon: number, api
   }
 }
 
-// Helper function to generate PDF with custom size
-function generatePDF(results: any[]) {
-  // Use A4 landscape for more width, or custom size
+// Load image as base64
+async function loadImageBase64(path: string): Promise<string> {
+  const response = await fetch(path)
+  const blob = await response.blob()
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
+// Generate PDF with embed logo and footer
+async function generatePDF(results: any[]) {
   const doc = new jsPDF({
     orientation: "landscape",
     unit: "mm",
     format: "a4",
   })
 
-  // Get page dimensions
+  // Load logo image from public directory
+  const logoPath = "/deer-stats-logo.png" // Adjust if needed
+  const logoDataUrl = await loadImageBase64(logoPath)
+
+  // Add logo at the top center
+  const logoWidth = 40
   const pageWidth = doc.internal.pageSize.getWidth()
-  const pageHeight = doc.internal.pageSize.getHeight()
-  const margins = 10
+  const margin = 10
+  const headerY = 10
+  doc.addImage(logoDataUrl, "PNG", (pageWidth - logoWidth) / 2, headerY, logoWidth, 15)
 
   // Add title
   doc.setFontSize(18)
-  doc.text("Weather Data Analysis Report", margins, 20)
+  doc.text("Weather Data Analysis Report", margin, headerY + 25)
 
   // Add generation date and info
   doc.setFontSize(10)
-  doc.text(`Generated on: ${new Date().toLocaleString()}`, margins, 30)
-  doc.text(`Total Images Analyzed: ${results.length}`, margins, 36)
+  const now = new Date()
+  doc.text(`Generated on: ${now.toLocaleString()}`, margin, headerY + 30)
+  doc.text(`Total Images Analyzed: ${results.length}`, margin, headerY + 36)
 
-  // Prepare table data with truncated content
+  // Prepare table data
   const tableData = results.map((result) => [
     result.imageIndex.toString(),
     result.date,
     result.time,
     result.windDirection,
-    // Truncate weather descriptions to fit
     result.weather.length > 12 ? result.weather.substring(0, 10) + ".." : result.weather,
-    result.weatherSixHoursPrior.length > 12
-      ? result.weatherSixHoursPrior.substring(0, 10) + ".."
-      : result.weatherSixHoursPrior,
+    result.weatherSixHoursPrior.length > 12 ? result.weatherSixHoursPrior.substring(0, 10) + ".." : result.weatherSixHoursPrior,
     result.temperature + "°F",
     result.tempTrend,
     result.pressureTrend,
   ])
 
-  // Calculate available width
-  const availableWidth = pageWidth - margins * 2
+  const availableWidth = doc.internal.pageSize.getWidth() - 20
 
-  // Add table with optimized column widths for landscape
   autoTable(doc, {
     head: [["#", "Date", "Time", "Wind", "Weather", "Weather 6h", "Temp", "T.Trend", "P.Trend"]],
     body: tableData,
-    startY: 45,
-    margin: { top: 45, left: margins, right: margins, bottom: 20 },
+    startY: headerY + 45,
+    margin: { left: margin, right: margin, top: headerY + 45, bottom: 20 },
     styles: {
       fontSize: 8,
       cellPadding: 2,
@@ -128,46 +142,50 @@ function generatePDF(results: any[]) {
       fillColor: [245, 245, 245],
     },
     columnStyles: {
-      0: { cellWidth: availableWidth * 0.06 }, // # - 6%
-      1: { cellWidth: availableWidth * 0.14 }, // Date - 14%
-      2: { cellWidth: availableWidth * 0.1 }, // Time - 10%
-      3: { cellWidth: availableWidth * 0.08 }, // Wind - 8%
-      4: { cellWidth: availableWidth * 0.16 }, // Weather - 16%
-      5: { cellWidth: availableWidth * 0.16 }, // Weather 6h - 16%
-      6: { cellWidth: availableWidth * 0.1 }, // Temp - 10%
-      7: { cellWidth: availableWidth * 0.1 }, // T.Trend - 10%
-      8: { cellWidth: availableWidth * 0.1 }, // P.Trend - 10%
+      0: { cellWidth: availableWidth * 0.06 },
+      1: { cellWidth: availableWidth * 0.14 },
+      2: { cellWidth: availableWidth * 0.1 },
+      3: { cellWidth: availableWidth * 0.08 },
+      4: { cellWidth: availableWidth * 0.16 },
+      5: { cellWidth: availableWidth * 0.16 },
+      6: { cellWidth: availableWidth * 0.1 },
+      7: { cellWidth: availableWidth * 0.1 },
+      8: { cellWidth: availableWidth * 0.1 },
     },
-    tableWidth: availableWidth,
     didDrawPage: (data) => {
-      // Add page numbers
-      const pageCount = doc.getNumberOfPages()
-      doc.setFontSize(8)
-      doc.text(`Page ${data.pageNumber} of ${pageCount}`, pageWidth - margins - 30, pageHeight - 10)
+      // Add footer with website info
+      const totalPages = doc.getNumberOfPages()
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i)
+        const footerText = "YourWebsite.com" // Replace with your actual website
+        doc.setFontSize(8)
+        doc.text(footerText, pageWidth / 2, doc.internal.pageSize.getHeight() - 8, { align: 'center' })
+      }
     },
   })
 
-  // Add summary section
-  const finalY = (doc as any).lastAutoTable.finalY || 45
-  if (finalY < pageHeight - 60) {
+  // Add summary at the end
+  const finalY = (doc as any).lastAutoTable?.finalY || headerY + 45
+  if (finalY < doc.internal.pageSize.getHeight() - 60) {
     doc.setFontSize(12)
-    doc.text("Summary", margins, finalY + 15)
+    doc.text("Summary", margin, finalY + 15)
 
     doc.setFontSize(9)
     const successCount = results.filter((r) => r.date !== "error" && r.date !== "not found").length
     const errorCount = results.filter((r) => r.date === "error").length
     const notFoundCount = results.filter((r) => r.date === "not found").length
 
-    doc.text(`Successfully processed: ${successCount} images`, margins, finalY + 25)
-    doc.text(`Errors encountered: ${errorCount} images`, margins, finalY + 32)
-    doc.text(`No timestamp found: ${notFoundCount} images`, margins, finalY + 39)
+    doc.text(`Successfully processed: ${successCount} images`, margin, finalY + 25)
+    doc.text(`Errors encountered: ${errorCount} images`, margin, finalY + 32)
+    doc.text(`No timestamp found: ${notFoundCount} images`, margin, finalY + 39)
 
-    // Add note about data formatting
+    // Notes
     doc.setFontSize(7)
-    doc.text("Note: Weather descriptions may be abbreviated to fit the table format.", margins, finalY + 50)
-    doc.text("Temperature values are displayed in Fahrenheit (°F).", margins, finalY + 55)
+    doc.text("Note: Weather descriptions may be abbreviated to fit the table format.", margin, finalY + 50)
+    doc.text("Temperature values are displayed in Fahrenheit (°F).", margin, finalY + 55)
   }
 
+  // Output PDF as ArrayBuffer
   return doc.output("arraybuffer")
 }
 
@@ -226,21 +244,19 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Parse date and time to create a timestamp
-        const dateTimeString = `${date}T${time}:00-05:00` // Assuming Gainesville, FL is in EDT (UTC-5)
+        // Create timestamp
+        const dateTimeString = `${date}T${time}:00-05:00` // assuming EDT
         const timestamp = Math.floor(new Date(dateTimeString).getTime() / 1000)
-        const sixHoursPriorTimestamp = timestamp - 6 * 60 * 60 // 6 hours earlier
+        const sixHoursPriorTimestamp = timestamp - 6 * 60 * 60
 
-        // Fetch weather data for the timestamp
+        // Fetch weather data
         const weatherData = await fetchWeatherData(timestamp, lat, lon, apiKey)
-        console.log(weatherData)
         const priorWeatherData = await fetchWeatherData(sixHoursPriorTimestamp, lat, lon, apiKey)
-        console.log(priorWeatherData)
 
         const currentWeather = weatherData.data[0]
         const priorWeather = priorWeatherData.data[0]
 
-        // Extract wind direction
+        // Wind direction
         const windDeg = currentWeather.wind_deg
         const windDirection =
           windDeg >= 337.5 || windDeg < 22.5
@@ -259,24 +275,24 @@ export async function POST(request: NextRequest) {
                         ? "W"
                         : "NW"
 
-        // Extract weather description
+        // Weather description
         const weatherDescription = currentWeather.weather[0]?.description || "N/A"
         const priorWeatherDescription = priorWeather.weather[0]?.description || "N/A"
 
-        // Extract temperature
+        // Temperature
         const temperature = kelvinToFahrenheit(currentWeather.temp)
         const priorTemperature = kelvinToFahrenheit(priorWeather.temp)
 
-        // Determine temperature and pressure trends
+        // Trends
         const tempTrend = getTemperatureTrend(currentWeather.temp, priorWeather.temp)
         const pressureTrend = getPressureTrend(currentWeather.pressure, priorWeather.pressure)
 
         return {
           imageIndex: index + 1,
           imageUrl: url,
-          date: date,
-          time: time,
-          windDirection: windDirection,
+          date,
+          time,
+          windDirection,
           weather: weatherDescription,
           weatherSixHoursPrior: priorWeatherDescription,
           temperature: temperature.toString(),
@@ -300,11 +316,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Process with concurrency limit of 3 to avoid rate limits
+    // Process with limit of 3 concurrent requests
     const results = await runInBatches(imageUrls, 3, analyzeImage)
 
-    // Generate PDF
-    const pdfBuffer = generatePDF(results)
+    const pdfBuffer = await generatePDF(results)
 
     return new Response(pdfBuffer, {
       status: 200,
