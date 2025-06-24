@@ -137,7 +137,7 @@ async function generatePDF(results: any[]) {
       const totalPages = doc.getNumberOfPages()
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i)
-        const footerText = "www.deerstats.com" // replace as needed
+        const footerText = "YourWebsite.com" // replace as needed
         doc.setFontSize(8)
         doc.text(footerText, pageWidth / 2, pageHeight - 8, { align: "center" })
       }
