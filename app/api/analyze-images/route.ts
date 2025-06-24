@@ -84,7 +84,7 @@ async function generatePDF(results: any[]) {
   })
 
   // Load logo image from public directory
-  const logoPath = "/deer-stats-logo.png" // Adjust if needed
+  const logoPath = "https://www.deerstats.com/deer-stats-logo.png" // Adjust if needed
   const logoDataUrl = await loadImageBase64(logoPath)
 
   // Add logo at the top center
