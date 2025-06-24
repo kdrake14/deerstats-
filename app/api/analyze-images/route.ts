@@ -51,6 +51,88 @@ async function fetchWeatherData(timestamp: number, lat: number, lon: number, api
   }
 }
 
+// Generate weather analysis summary
+function generateWeatherAnalysis(results: any[]) {
+  const validResults = results.filter((r) => r.date !== "error" && r.date !== "not found")
+
+  if (validResults.length === 0) {
+    return "No valid weather data available for analysis."
+  }
+
+  // Temperature analysis
+  const temperatures = validResults
+    .filter((r) => r.temperature !== "N/A" && !isNaN(Number.parseInt(r.temperature)))
+    .map((r) => Number.parseInt(r.temperature))
+
+  const avgTemp =
+    temperatures.length > 0 ? Math.round(temperatures.reduce((a, b) => a + b, 0) / temperatures.length) : 0
+  const minTemp = temperatures.length > 0 ? Math.min(...temperatures) : 0
+  const maxTemp = temperatures.length > 0 ? Math.max(...temperatures) : 0
+
+  // Weather conditions analysis
+  const weatherConditions = validResults.filter((r) => r.weather !== "N/A").map((r) => r.weather.toLowerCase())
+
+  const conditionCounts = weatherConditions.reduce(
+    (acc, condition) => {
+      acc[condition] = (acc[condition] || 0) + 1
+      return acc
+    },
+    {} as Record<string, number>,
+  )
+
+  const mostCommonCondition = Object.entries(conditionCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || "unknown"
+
+  // Wind direction analysis
+  const windDirections = validResults.filter((r) => r.windDirection !== "N/A").map((r) => r.windDirection)
+
+  const windCounts = windDirections.reduce(
+    (acc, direction) => {
+      acc[direction] = (acc[direction] || 0) + 1
+      return acc
+    },
+    {} as Record<string, number>,
+  )
+
+  const predominantWind = Object.entries(windCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || "variable"
+
+  // Temperature trends
+  const risingTrends = validResults.filter((r) => r.tempTrend === "Rising").length
+  const fallingTrends = validResults.filter((r) => r.tempTrend === "Falling").length
+  const stableTrends = validResults.filter((r) => r.tempTrend === "Stable").length
+
+  // Time period analysis
+  const timeRanges = validResults
+    .filter((r) => r.time !== "not found")
+    .map((r) => {
+      const hour = Number.parseInt(r.time.split(":")[0])
+      if (hour >= 6 && hour < 12) return "Morning"
+      if (hour >= 12 && hour < 18) return "Afternoon"
+      if (hour >= 18 && hour < 24) return "Evening"
+      return "Night"
+    })
+
+  const timeCounts = timeRanges.reduce(
+    (acc, period) => {
+      acc[period] = (acc[period] || 0) + 1
+      return acc
+    },
+    {} as Record<string, number>,
+  )
+
+  return {
+    avgTemp,
+    minTemp,
+    maxTemp,
+    mostCommonCondition,
+    predominantWind,
+    risingTrends,
+    fallingTrends,
+    stableTrends,
+    timeCounts,
+    validCount: validResults.length,
+  }
+}
+
 // Generate PDF with enhanced structure
 async function generatePDF(results: any[]) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" })
@@ -62,7 +144,7 @@ async function generatePDF(results: any[]) {
   // Load logo
   let logoDataUrl = ""
   try {
-    const logoResponse = await fetch("/deer-stats-logo.png")
+    const logoResponse = await fetch("https://www.deerstats.com/deer-stats-logo.png")
     if (logoResponse.ok) {
       const logoBuffer = await logoResponse.arrayBuffer()
       const logoBase64 = Buffer.from(logoBuffer).toString("base64")
@@ -97,7 +179,7 @@ async function generatePDF(results: any[]) {
     }
   }
 
-  // PAGE 1: SUMMARY PAGE WITH IMAGE ANALYSIS RESULTS
+  // PAGE 1: SUMMARY PAGE WITH WEATHER ANALYSIS
 
   // Logo positioned next to title
   if (logoDataUrl) {
@@ -141,80 +223,71 @@ async function generatePDF(results: any[]) {
     `Analysis completed successfully for ${successCount} out of ${results.length} images processed.`,
     `${errorCount} images encountered processing errors during analysis.`,
     `${notFoundCount} images had no detectable timestamp information.`,
-    "",
-    "Key Findings:",
-    `• Weather conditions analyzed using OpenAI GPT-4 Vision technology`,
-    `• Historical weather data correlated via OpenWeatherMap API integration`,
-    `• Temperature trends calculated with 6-hour comparative analysis`,
-    `• Wind direction patterns assessed from visual environmental indicators`,
-    `• Atmospheric pressure changes tracked for weather pattern analysis`,
   ]
 
   summaryLines.forEach((line) => {
-    if (line === "") {
-      summaryY += 4
-    } else {
-      doc.text(line, margin, summaryY)
-      summaryY += 6
-    }
-  })
-
-  // Image Analysis Results Section
-  doc.setFontSize(16)
-  doc.setTextColor(52, 73, 94)
-  doc.text("Image Analysis Results", margin, summaryY + 10)
-
-  summaryY += 25
-
-  // Create a compact results table for first page
-  const compactResults = results.slice(0, Math.min(8, results.length)) // Show first 8 results
-
-  doc.setFontSize(9)
-  doc.setTextColor(60, 60, 60)
-
-  // Table headers
-  const headers = ["#", "Date", "Time", "Weather", "Temp", "Wind", "Trend"]
-  let xPos = margin
-  const colWidths = [15, 25, 20, 35, 20, 20, 25]
-
-  // Draw header
-  doc.setFontSize(9)
-  doc.setTextColor(52, 73, 94)
-  doc.setFont("helvetica", "bold")
-  headers.forEach((header, i) => {
-    doc.text(header, xPos, summaryY)
-    xPos += colWidths[i]
-  })
-
-  summaryY += 8
-  doc.setFont("helvetica", "normal")
-  doc.setTextColor(60, 60, 60)
-
-  // Draw data rows
-  compactResults.forEach((result) => {
-    xPos = margin
-    const rowData = [
-      result.imageIndex.toString(),
-      result.date.length > 10 ? result.date.substring(0, 8) + ".." : result.date,
-      result.time,
-      result.weather.length > 15 ? result.weather.substring(0, 13) + ".." : result.weather,
-      result.temperature === "N/A" ? "N/A" : result.temperature + "°F",
-      result.windDirection,
-      result.tempTrend,
-    ]
-
-    rowData.forEach((data, i) => {
-      doc.text(data, xPos, summaryY)
-      xPos += colWidths[i]
-    })
+    doc.text(line, margin, summaryY)
     summaryY += 6
   })
 
-  // Show "more results on page 2" if there are more images
-  if (results.length > 8) {
-    doc.setFontSize(9)
-    doc.setTextColor(100, 100, 100)
-    doc.text(`... and ${results.length - 8} more results (see complete table on Page 2)`, margin, summaryY + 5)
+  // Weather and Time Analysis Section
+  summaryY += 10
+  doc.setFontSize(16)
+  doc.setTextColor(52, 73, 94)
+  doc.text("Weather & Time Analysis", margin, summaryY)
+
+  summaryY += 15
+  const analysis = generateWeatherAnalysis(results)
+
+  if (typeof analysis === "string") {
+    doc.setFontSize(10)
+    doc.setTextColor(60, 60, 60)
+    doc.text(analysis, margin, summaryY)
+  } else {
+    doc.setFontSize(10)
+    doc.setTextColor(60, 60, 60)
+
+    const analysisLines = [
+      `Temperature Analysis:`,
+      `  • Average temperature across all analyzed images: ${analysis.avgTemp}°F`,
+      `  • Temperature range: ${analysis.minTemp}°F to ${analysis.maxTemp}°F`,
+      `  • Temperature trends: ${analysis.risingTrends} rising, ${analysis.fallingTrends} falling, ${analysis.stableTrends} stable`,
+      "",
+      `Weather Conditions:`,
+      `  • Most common weather condition: ${analysis.mostCommonCondition}`,
+      `  • Predominant wind direction: ${analysis.predominantWind}`,
+      "",
+      `Time Period Distribution:`,
+    ]
+
+    // Add time period breakdown
+    Object.entries(analysis.timeCounts).forEach(([period, count]) => {
+      analysisLines.push(`  • ${period}: ${count} images`)
+    })
+
+    analysisLines.push("")
+    analysisLines.push(`Data Quality Assessment:`)
+    analysisLines.push(`  • Successfully analyzed ${analysis.validCount} images with complete weather data`)
+    analysisLines.push(
+      `  • Weather patterns show ${analysis.risingTrends > analysis.fallingTrends ? "predominantly warming" : analysis.fallingTrends > analysis.risingTrends ? "predominantly cooling" : "stable"} temperature trends`,
+    )
+    analysisLines.push(
+      `  • Wind patterns indicate ${analysis.predominantWind} directional preference during analyzed periods`,
+    )
+
+    analysisLines.forEach((line) => {
+      if (line === "") {
+        summaryY += 4
+      } else if (line.startsWith("  •")) {
+        doc.text(line, margin + 5, summaryY)
+        summaryY += 6
+      } else {
+        doc.setFont("helvetica", line.endsWith(":") ? "bold" : "normal")
+        doc.text(line, margin, summaryY)
+        summaryY += 6
+        doc.setFont("helvetica", "normal")
+      }
+    })
   }
 
   // PAGE 2: DATA TABLE
@@ -318,16 +391,11 @@ async function generatePDF(results: any[]) {
 
         doc.addImage(imageDataUrl, "JPEG", imgX, imgY, imgWidth, imgHeight)
 
-        // Analysis details below image
+        // Analysis details below image (without "Analysis Results" header)
         let detailY = imgY + imgHeight + 20
-
-        doc.setFontSize(14)
-        doc.setTextColor(52, 73, 94)
-        doc.text("Analysis Results", margin, detailY)
 
         doc.setFontSize(10)
         doc.setTextColor(60, 60, 60)
-        detailY += 15
 
         const details = [
           `Date Extracted: ${result.date}`,
