@@ -54,42 +54,150 @@ async function fetchWeatherData(timestamp: number, lat: number, lon: number, api
 // Load image as base64 string from URL (for server-side Node.js)
 async function loadImageBase64(imageUrl: string): Promise<string> {
   const response = await axios.get(imageUrl, { responseType: "arraybuffer" })
-  const mimeType = response.headers['content-type'] || 'image/png'
+  const mimeType = response.headers["content-type"] || "image/png"
   const base64 = Buffer.from(response.data).toString("base64")
   return `data:${mimeType};base64,${base64}`
 }
 
-// Generate PDF
+// Generate PDF with enhanced structure
 async function generatePDF(results: any[]) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" })
 
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
-  const margin = 10
+  const margin = 15
 
   // Load logo
-  const logoUrl = "https://www.deerstats.com/deer-stats-logo.png"
-  const logoDataUrl = await loadImageBase64(logoUrl)
+  let logoDataUrl = ""
+  try {
+    const logoResponse = await fetch("/deer-stats-logo.png")
+    if (logoResponse.ok) {
+      const logoBuffer = await logoResponse.arrayBuffer()
+      const logoBase64 = Buffer.from(logoBuffer).toString("base64")
+      logoDataUrl = `data:image/png;base64,${logoBase64}`
+    }
+  } catch (error) {
+    console.warn("Could not load logo:", error)
+  }
 
-  // Draw logo on the left
-  const logoWidth = 16.66
-  const logoHeight = 25
-  const logoX = margin
-  const logoY = 20
-  doc.addImage(logoDataUrl, "PNG", logoX, logoY-15, logoWidth, logoHeight)
+  // Helper function to add footer to all pages
+  const addFooter = () => {
+    const totalPages = doc.getNumberOfPages()
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i)
 
-  // Draw header title next to logo, vertically aligned with the logo
-  const titleText = "Weather Data Analysis Report"
-  const titleX = logoX + logoWidth + 5 // small gap
-  const titleY = logoY - 10 + logoHeight / 2 + 3 // approximate vertical centering
-  doc.setFontSize(18)
-  doc.text(titleText, titleX, titleY)
+      // Footer background
+      doc.setFillColor(52, 73, 94)
+      doc.rect(0, pageHeight - 12, pageWidth, 12, "F")
 
-  // Add info below header
-  doc.setFontSize(10)
+      // Footer text
+      doc.setFontSize(9)
+      doc.setTextColor(255, 255, 255)
+      doc.text("www.deerstats.com", pageWidth / 2, pageHeight - 6, { align: "center" })
+      doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 6, { align: "right" })
+    }
+  }
+
+  // PAGE 1: SUMMARY PAGE
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, "PNG", margin, 20, 30, 30)
+  }
+
+  // Title
+  doc.setFontSize(24)
+  doc.setTextColor(52, 73, 94)
+  doc.text("Weather Data Analysis Report", margin + 35, 30)
+
+  // Subtitle
+  doc.setFontSize(14)
+  doc.setTextColor(100, 100, 100)
+  doc.text("Comprehensive Image Analysis & Weather Intelligence", margin + 35, 40)
+
+  // Report metadata
+  doc.setFontSize(11)
+  doc.setTextColor(80, 80, 80)
   const now = new Date()
-  doc.text(`Generated on: ${now.toLocaleString()}`, margin, logoY + 25)
-  doc.text(`Total Images Analyzed: ${results.length}`, margin, logoY + 31)
+  doc.text(`Generated: ${now.toLocaleString()}`, margin, 65)
+  doc.text(`Total Images Processed: ${results.length}`, margin, 72)
+  doc.text(`Analysis Location: Gainesville, FL (29.6516°N, 82.3248°W)`, margin, 79)
+
+  // Summary statistics
+  const successCount = results.filter((r) => r.date !== "error" && r.date !== "not found").length
+  const errorCount = results.filter((r) => r.date === "error").length
+  const notFoundCount = results.filter((r) => r.date === "not found").length
+
+  doc.setFontSize(16)
+  doc.setTextColor(52, 73, 94)
+  doc.text("Executive Summary", margin, 100)
+
+  doc.setFontSize(11)
+  doc.setTextColor(60, 60, 60)
+
+  // Summary boxes
+  const boxY = 110
+  const boxHeight = 25
+  const boxWidth = 80
+
+  // Success box
+  doc.setFillColor(46, 204, 113)
+  doc.rect(margin, boxY, boxWidth, boxHeight, "F")
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(20)
+  doc.text(successCount.toString(), margin + boxWidth / 2, boxY + 12, { align: "center" })
+  doc.setFontSize(10)
+  doc.text("Successfully Analyzed", margin + boxWidth / 2, boxY + 20, { align: "center" })
+
+  // Error box
+  doc.setFillColor(231, 76, 60)
+  doc.rect(margin + boxWidth + 10, boxY, boxWidth, boxHeight, "F")
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(20)
+  doc.text(errorCount.toString(), margin + boxWidth + 10 + boxWidth / 2, boxY + 12, { align: "center" })
+  doc.setFontSize(10)
+  doc.text("Processing Errors", margin + boxWidth + 10 + boxWidth / 2, boxY + 20, { align: "center" })
+
+  // Not found box
+  doc.setFillColor(241, 196, 15)
+  doc.rect(margin + (boxWidth + 10) * 2, boxY, boxWidth, boxHeight, "F")
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(20)
+  doc.text(notFoundCount.toString(), margin + (boxWidth + 10) * 2 + boxWidth / 2, boxY + 12, { align: "center" })
+  doc.setFontSize(10)
+  doc.text("No Timestamp Found", margin + (boxWidth + 10) * 2 + boxWidth / 2, boxY + 20, { align: "center" })
+
+  // Analysis overview
+  doc.setFontSize(14)
+  doc.setTextColor(52, 73, 94)
+  doc.text("Analysis Overview", margin, 155)
+
+  doc.setFontSize(10)
+  doc.setTextColor(60, 60, 60)
+  const overviewText = [
+    "• Advanced AI-powered image analysis using OpenAI GPT-4 Vision",
+    "• Historical weather data integration via OpenWeatherMap API",
+    "• Comprehensive timestamp extraction and weather correlation",
+    "• Temperature trend analysis with 6-hour comparative data",
+    "• Wind direction assessment and atmospheric pressure tracking",
+    "• Professional reporting with detailed data visualization",
+  ]
+
+  let yPos = 165
+  overviewText.forEach((text) => {
+    doc.text(text, margin, yPos)
+    yPos += 7
+  })
+
+  // PAGE 2: DATA TABLE
+  doc.addPage()
+
+  // Header for page 2
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, "PNG", margin, 15, 20, 20)
+  }
+
+  doc.setFontSize(18)
+  doc.setTextColor(52, 73, 94)
+  doc.text("Detailed Analysis Results", margin + 25, 25)
 
   // Prepare table data
   const tableData = results.map((r) => [
@@ -109,8 +217,8 @@ async function generatePDF(results: any[]) {
   autoTable(doc, {
     head: [["#", "Date", "Time", "Wind", "Weather", "Weather 6h", "Temp", "T.Trend", "P.Trend"]],
     body: tableData,
-    startY: logoY + 45,
-    margin: { left: margin, right: margin, top: logoY + 45 },
+    startY: 40,
+    margin: { left: margin, right: margin, top: 40, bottom: 20 },
     styles: {
       fontSize: 8,
       cellPadding: 2,
@@ -119,7 +227,7 @@ async function generatePDF(results: any[]) {
       halign: "center",
     },
     headStyles: {
-      fillColor: [66, 139, 202],
+      fillColor: [52, 73, 94],
       textColor: 255,
       fontSize: 9,
       fontStyle: "bold",
@@ -138,38 +246,80 @@ async function generatePDF(results: any[]) {
       7: { cellWidth: availableWidth * 0.1 },
       8: { cellWidth: availableWidth * 0.1 },
     },
-    didDrawPage: () => {
-      // Add footer on each page
-      const totalPages = doc.getNumberOfPages()
-      for (let i = 1; i <= totalPages; i++) {
-        doc.setPage(i)
-        const footerText = "www.deerstats.com" // replace as needed
-        doc.setFontSize(8)
-        doc.text(footerText, pageWidth / 2, pageHeight - 8, { align: "center" })
-      }
-    }
   })
 
-  // Add summary
-  const finalY = (doc as any).lastAutoTable?.finalY || logoY + 45
-  if (finalY < pageHeight - 60) {
-    doc.setFontSize(12)
-    doc.text("Summary", margin, finalY + 15)
+  // PAGES 3+: ANALYZED IMAGES
+  for (let i = 0; i < results.length; i++) {
+    doc.addPage()
 
-    doc.setFontSize(9)
-    const successCount = results.filter((r) => r.date !== "error" && r.date !== "not found").length
-    const errorCount = results.filter((r) => r.date === "error").length
-    const notFoundCount = results.filter((r) => r.date === "not found").length
+    const result = results[i]
 
-    doc.text(`Successfully processed: ${successCount} images`, margin, finalY + 25)
-    doc.text(`Errors encountered: ${errorCount} images`, margin, finalY + 32)
-    doc.text(`No timestamp found: ${notFoundCount} images`, margin, finalY + 39)
+    // Header
+    if (logoDataUrl) {
+      doc.addImage(logoDataUrl, "PNG", margin, 15, 15, 15)
+    }
 
-    // Notes
-    doc.setFontSize(7)
-    doc.text("Note: Weather descriptions may be abbreviated.", margin, finalY + 50)
-    doc.text("Temperature in Fahrenheit (°F).", margin, finalY + 55)
+    doc.setFontSize(16)
+    doc.setTextColor(52, 73, 94)
+    doc.text(`Image Analysis #${result.imageIndex}`, margin + 20, 25)
+
+    // Try to load and display the analyzed image
+    try {
+      const imageResponse = await fetch(result.imageUrl)
+      if (imageResponse.ok) {
+        const imageBuffer = await imageResponse.arrayBuffer()
+        const imageBase64 = Buffer.from(imageBuffer).toString("base64")
+        const mimeType = imageResponse.headers.get("content-type") || "image/jpeg"
+        const imageDataUrl = `data:${mimeType};base64,${imageBase64}`
+
+        // Add image (centered, with reasonable size)
+        const imgWidth = 120
+        const imgHeight = 80
+        const imgX = (pageWidth - imgWidth) / 2
+        const imgY = 40
+
+        doc.addImage(imageDataUrl, "JPEG", imgX, imgY, imgWidth, imgHeight)
+
+        // Analysis details below image
+        let detailY = imgY + imgHeight + 20
+
+        doc.setFontSize(14)
+        doc.setTextColor(52, 73, 94)
+        doc.text("Analysis Results", margin, detailY)
+
+        doc.setFontSize(10)
+        doc.setTextColor(60, 60, 60)
+        detailY += 15
+
+        const details = [
+          `Date Extracted: ${result.date}`,
+          `Time Extracted: ${result.time}`,
+          `Wind Direction: ${result.windDirection}`,
+          `Current Weather: ${result.weather}`,
+          `Weather 6h Prior: ${result.weatherSixHoursPrior}`,
+          `Temperature: ${result.temperature}`,
+          `Temperature Trend: ${result.tempTrend}`,
+          `Pressure Trend: ${result.pressureTrend}`,
+        ]
+
+        details.forEach((detail) => {
+          doc.text(detail, margin, detailY)
+          detailY += 8
+        })
+      }
+    } catch (error) {
+      console.warn(`Could not load image ${result.imageUrl}:`, error)
+
+      // Show placeholder if image can't be loaded
+      doc.setFillColor(240, 240, 240)
+      doc.rect((pageWidth - 120) / 2, 40, 120, 80, "F")
+      doc.setTextColor(120, 120, 120)
+      doc.text("Image could not be loaded", pageWidth / 2, 85, { align: "center" })
+    }
   }
+
+  // Add footer to all pages
+  addFooter()
 
   return doc.output("arraybuffer")
 }
