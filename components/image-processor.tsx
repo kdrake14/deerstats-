@@ -1,119 +1,207 @@
 "use client"
 
-import type React from "react"
-
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { CheckCircle, Download, FileText, Upload } from "lucide-react"
+import { Card, CardContent } from "@/components/ui/card"
+import { ImageUploader } from "@/components/image-uploader"
+import { ImagePreview } from "@/components/image-preview"
+import { Loader2, Download, CheckCircle, AlertCircle, FileText } from "lucide-react"
+import { upload } from "@vercel/blob/client"
+
+export type UploadedImage = {
+  id: string
+  file: File
+  preview: string
+  blobUrl?: string
+  uploadStatus?: "pending" | "uploading" | "uploaded" | "error"
+}
+
+type ProcessingStatus = "idle" | "processing" | "success" | "error"
 
 export function ImageProcessor() {
-  const [images, setImages] = useState<File[]>([])
-  const [results, setResults] = useState<{
-    processedCount: number
-    csvUrl: string
-  } | null>(null)
+  const [images, setImages] = useState<UploadedImage[]>([])
+  const [status, setStatus] = useState<ProcessingStatus>("idle")
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
 
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      setImages(Array.from(event.target.files))
+  const handleUpload = (newImages: UploadedImage[]) => {
+    const imagesWithStatus = newImages.map((img) => ({
+      ...img,
+      uploadStatus: "pending" as const,
+    }))
+    setImages((prev) => [...prev, ...imagesWithStatus])
+  }
+
+  const handleRemove = (id: string) => {
+    setImages((prev) => prev.filter((image) => image.id !== id))
+  }
+
+  const uploadToBlob = async (image: UploadedImage): Promise<UploadedImage> => {
+    try {
+      setImages((prev) => prev.map((img) => (img.id === image.id ? { ...img, uploadStatus: "uploading" } : img)))
+
+      const blob = await upload(image.file.name, image.file, {
+        access: "public",
+        handleUploadUrl: "/api/upload",
+        onUploadProgress: (progress) => {
+          setUploadProgress((prev) => ({
+            ...prev,
+            [image.id]: progress.percentage,
+          }))
+        },
+      })
+
+      const updatedImage = {
+        ...image,
+        blobUrl: blob.url,
+        uploadStatus: "uploaded" as const,
+      }
+
+      setImages((prev) => prev.map((img) => (img.id === image.id ? updatedImage : img)))
+
+      return updatedImage
+    } catch (error) {
+      setImages((prev) => prev.map((img) => (img.id === image.id ? { ...img, uploadStatus: "error" } : img)))
+      throw error
     }
   }
 
-  const processImages = async () => {
-    if (images.length === 0) {
-      alert("Please upload images first.")
-      return
+  const handleProcess = async () => {
+    if (images.length === 0) return
+
+    setStatus("processing")
+    setError(null)
+
+    try {
+      // First, upload all images to Vercel Blob
+      const uploadPromises = images.map((image) => {
+        if (image.uploadStatus === "uploaded" && image.blobUrl) {
+          return Promise.resolve(image)
+        }
+        return uploadToBlob(image)
+      })
+
+      const uploadedImages = await Promise.all(uploadPromises)
+      const imageUrls = uploadedImages.map((img) => img.blobUrl!).filter(Boolean)
+
+      // Call the analyze-images API
+      const response = await fetch("/api/analyze-images", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ imageUrls }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.statusText}`)
+      }
+
+      // Create a blob URL from the PDF response
+      const pdfBlob = await response.blob()
+      const pdfUrl = URL.createObjectURL(pdfBlob)
+
+      setPdfUrl(pdfUrl)
+      setStatus("success")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to analyze images")
+      setStatus("error")
     }
+  }
 
-    // Simulate processing (replace with actual API call)
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    // Simulate results
-    setResults({
-      processedCount: images.length,
-      csvUrl:
-        "data:text/csv;charset=utf-8," +
-        encodeURIComponent("Date,Time,Filename\n2024-07-20,14:30:00,image1.jpg\n2024-07-20,14:31:00,image2.jpg"),
-    })
+  const handleReset = () => {
+    setImages([])
+    setStatus("idle")
+    setPdfUrl(null)
+    setError(null)
   }
 
   return (
-    <div className="container mx-auto p-4">
-      <div className="text-center mb-8">
-        <div className="flex items-center justify-center gap-3 mb-4">
-          <img src="/deer-stats-logo.png" alt="Deer Stats Logo" className="h-12 w-auto" />
-          <h1 className="text-3xl font-bold">Deer Stats - Image Analysis</h1>
-        </div>
-        <p className="text-gray-600">Upload images to extract date and time information using AI vision</p>
-      </div>
+    <Card className="w-full">
+      <CardContent className="pt-6">
+        <div className="space-y-6">
+          <ImageUploader onUpload={handleUpload} disabled={status === "processing"} />
 
-      <div className="flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-6">
-        <label htmlFor="image-upload" className="cursor-pointer text-blue-600 hover:text-blue-800">
-          <div className="flex flex-col items-center">
-            <Upload className="h-6 w-6 mb-2" />
-            <span>Click to upload images</span>
-          </div>
-        </label>
-        <input
-          id="image-upload"
-          type="file"
-          multiple
-          accept="image/*"
-          className="hidden"
-          onChange={handleImageUpload}
-        />
-        {images.length > 0 && <div className="mt-4">Selected {images.length} images</div>}
-      </div>
-
-      <Button onClick={processImages} disabled={images.length === 0} className="mt-4 w-full">
-        Process Images
-      </Button>
-
-      {results && (
-        <div className="mt-8 space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Analysis Results</h2>
-            <div className="flex items-center gap-2">
-              <img src="/deer-stats-logo.png" alt="Deer Stats" className="h-6 w-auto" />
-              <span className="text-sm text-gray-600">Powered by Deer Stats</span>
+          {images.length > 0 && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-medium">Selected Images ({images.length})</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {images.map((image) => (
+                  <ImagePreview
+                    key={image.id}
+                    image={image}
+                    onRemove={handleRemove}
+                    disabled={status === "processing"}
+                    uploadProgress={uploadProgress[image.id]}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <CheckCircle className="h-5 w-5 text-green-600" />
-              <span className="font-medium text-green-800">Processing Complete</span>
+          {status === "error" && (
+            <div className="bg-red-50 p-4 rounded-md flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
+              <div>
+                <h4 className="font-medium text-red-800">Processing failed</h4>
+                <p className="text-red-700 text-sm">{error}</p>
+              </div>
             </div>
-            <p className="text-green-700">Successfully processed {results.processedCount} images</p>
-          </div>
+          )}
 
-          <div className="flex gap-4">
-            <Button
-              onClick={() => {
-                const link = document.createElement("a")
-                link.href = results.csvUrl
-                link.download = `deer-stats-analysis-${new Date().toISOString().split("T")[0]}.csv`
-                document.body.appendChild(link)
-                link.click()
-                document.body.removeChild(link)
-              }}
-              className="flex items-center gap-2"
-            >
-              <Download className="h-4 w-4" />
-              Download CSV Report
-            </Button>
+          {status === "success" && (
+            <div className="bg-green-50 p-4 rounded-md">
+              <div className="flex items-start gap-3">
+                <CheckCircle className="h-5 w-5 text-green-500 mt-0.5" />
+                <div>
+                  <h4 className="font-medium text-green-800">Analysis complete</h4>
+                  <p className="text-green-700 text-sm">
+                    Successfully analyzed {images.length} images and generated a comprehensive weather analysis report
+                    with timestamps, wind direction, weather conditions, and temperature trends.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
-            <Button
-              variant="outline"
-              onClick={() => window.open(results.csvUrl, "_blank")}
-              className="flex items-center gap-2"
-            >
-              <FileText className="h-4 w-4" />
-              Preview Report
-            </Button>
+          <div className="flex flex-wrap gap-3">
+            {status === "idle" && (
+              <Button onClick={handleProcess} disabled={images.length === 0}>
+                <FileText className="mr-2 h-4 w-4" />
+                Generate Weather Report
+              </Button>
+            )}
+
+            {status === "processing" && (
+              <Button disabled>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Generating Report...
+              </Button>
+            )}
+
+            {status === "success" && pdfUrl && (
+              <>
+                <Button asChild variant="default">
+                  <a href={pdfUrl} download="weather_analysis_report.pdf">
+                    <Download className="mr-2 h-4 w-4" />
+                    Download PDF Report
+                  </a>
+                </Button>
+                <Button variant="outline" onClick={handleReset}>
+                  Process More Images
+                </Button>
+              </>
+            )}
+
+            {status === "error" && (
+              <Button variant="outline" onClick={handleReset}>
+                Try Again
+              </Button>
+            )}
           </div>
         </div>
-      )}
-    </div>
+      </CardContent>
+    </Card>
   )
 }
