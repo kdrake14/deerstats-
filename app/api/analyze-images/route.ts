@@ -51,14 +51,6 @@ async function fetchWeatherData(timestamp: number, lat: number, lon: number, api
   }
 }
 
-// Load image as base64 string from URL (for server-side Node.js)
-async function loadImageBase64(imageUrl: string): Promise<string> {
-  const response = await axios.get(imageUrl, { responseType: "arraybuffer" })
-  const mimeType = response.headers["content-type"] || "image/png"
-  const base64 = Buffer.from(response.data).toString("base64")
-  return `data:${mimeType};base64,${base64}`
-}
-
 // Generate PDF with enhanced structure
 async function generatePDF(results: any[]) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" })
@@ -80,19 +72,15 @@ async function generatePDF(results: any[]) {
     console.warn("Could not load logo:", error)
   }
 
-  // Helper function to add footer to all pages with descriptive labels
+  // Helper function to add footer to all pages (no background)
   const addFooter = () => {
     const totalPages = doc.getNumberOfPages()
     for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i)
 
-      // Footer background
-      doc.setFillColor(52, 73, 94)
-      doc.rect(0, pageHeight - 12, pageWidth, 12, "F")
-
-      // Footer text with page descriptions
+      // Footer text without background
       doc.setFontSize(9)
-      doc.setTextColor(255, 255, 255)
+      doc.setTextColor(100, 100, 100)
       doc.text("www.deerstats.com", pageWidth / 2, pageHeight - 6, { align: "center" })
 
       // Add descriptive page labels
@@ -109,94 +97,125 @@ async function generatePDF(results: any[]) {
     }
   }
 
-  // PAGE 1: SUMMARY PAGE
+  // PAGE 1: SUMMARY PAGE WITH IMAGE ANALYSIS RESULTS
+
+  // Logo positioned next to title
   if (logoDataUrl) {
-    doc.addImage(logoDataUrl, "PNG", margin, 20, 30, 30)
+    doc.addImage(logoDataUrl, "PNG", margin, 15, 25, 25)
   }
 
-  // Title
+  // Title next to logo
   doc.setFontSize(24)
   doc.setTextColor(52, 73, 94)
-  doc.text("Weather Data Analysis Report", margin + 35, 30)
+  doc.text("Weather Data Analysis Report", margin + 30, 30)
 
   // Subtitle
   doc.setFontSize(14)
   doc.setTextColor(100, 100, 100)
-  doc.text("Comprehensive Image Analysis & Weather Intelligence", margin + 35, 40)
+  doc.text("Comprehensive Image Analysis & Weather Intelligence", margin + 30, 38)
 
   // Report metadata
   doc.setFontSize(11)
   doc.setTextColor(80, 80, 80)
   const now = new Date()
-  doc.text(`Generated: ${now.toLocaleString()}`, margin, 65)
-  doc.text(`Total Images Processed: ${results.length}`, margin, 72)
-  doc.text(`Analysis Location: Gainesville, FL (29.6516°N, 82.3248°W)`, margin, 79)
+  doc.text(`Generated: ${now.toLocaleString()}`, margin, 55)
+  doc.text(`Total Images Processed: ${results.length}`, margin, 62)
+  doc.text(`Analysis Location: Gainesville, FL (29.6516°N, 82.3248°W)`, margin, 69)
 
   // Summary statistics
   const successCount = results.filter((r) => r.date !== "error" && r.date !== "not found").length
   const errorCount = results.filter((r) => r.date === "error").length
   const notFoundCount = results.filter((r) => r.date === "not found").length
 
+  // Executive Summary Section
   doc.setFontSize(16)
   doc.setTextColor(52, 73, 94)
-  doc.text("Executive Summary", margin, 100)
+  doc.text("Executive Summary", margin, 85)
 
-  doc.setFontSize(11)
-  doc.setTextColor(60, 60, 60)
-
-  // Summary boxes
-  const boxY = 110
-  const boxHeight = 25
-  const boxWidth = 80
-
-  // Success box
-  doc.setFillColor(46, 204, 113)
-  doc.rect(margin, boxY, boxWidth, boxHeight, "F")
-  doc.setTextColor(255, 255, 255)
-  doc.setFontSize(20)
-  doc.text(successCount.toString(), margin + boxWidth / 2, boxY + 12, { align: "center" })
-  doc.setFontSize(10)
-  doc.text("Successfully Analyzed", margin + boxWidth / 2, boxY + 20, { align: "center" })
-
-  // Error box
-  doc.setFillColor(231, 76, 60)
-  doc.rect(margin + boxWidth + 10, boxY, boxWidth, boxHeight, "F")
-  doc.setTextColor(255, 255, 255)
-  doc.setFontSize(20)
-  doc.text(errorCount.toString(), margin + boxWidth + 10 + boxWidth / 2, boxY + 12, { align: "center" })
-  doc.setFontSize(10)
-  doc.text("Processing Errors", margin + boxWidth + 10 + boxWidth / 2, boxY + 20, { align: "center" })
-
-  // Not found box
-  doc.setFillColor(241, 196, 15)
-  doc.rect(margin + (boxWidth + 10) * 2, boxY, boxWidth, boxHeight, "F")
-  doc.setTextColor(255, 255, 255)
-  doc.setFontSize(20)
-  doc.text(notFoundCount.toString(), margin + (boxWidth + 10) * 2 + boxWidth / 2, boxY + 12, { align: "center" })
-  doc.setFontSize(10)
-  doc.text("No Timestamp Found", margin + (boxWidth + 10) * 2 + boxWidth / 2, boxY + 20, { align: "center" })
-
-  // Analysis overview
-  doc.setFontSize(14)
-  doc.setTextColor(52, 73, 94)
-  doc.text("Analysis Overview", margin, 155)
-
+  // Formatted summary text
   doc.setFontSize(10)
   doc.setTextColor(60, 60, 60)
-  const overviewText = [
-    "• Advanced AI-powered image analysis using OpenAI GPT-4 Vision",
-    "• Historical weather data integration via OpenWeatherMap API",
-    "• Comprehensive timestamp extraction and weather correlation",
-    "• Temperature trend analysis with 6-hour comparative data",
-    "• Wind direction assessment and atmospheric pressure tracking",
-    "• Professional reporting with detailed data visualization",
+  let summaryY = 95
+
+  const summaryLines = [
+    `Analysis completed successfully for ${successCount} out of ${results.length} images processed.`,
+    `${errorCount} images encountered processing errors during analysis.`,
+    `${notFoundCount} images had no detectable timestamp information.`,
+    "",
+    "Key Findings:",
+    `• Weather conditions analyzed using OpenAI GPT-4 Vision technology`,
+    `• Historical weather data correlated via OpenWeatherMap API integration`,
+    `• Temperature trends calculated with 6-hour comparative analysis`,
+    `• Wind direction patterns assessed from visual environmental indicators`,
+    `• Atmospheric pressure changes tracked for weather pattern analysis`,
   ]
 
-  let yPos = 165
-  overviewText.forEach((text) => {
-    doc.text(text, margin, yPos)
-    yPos += 7
+  summaryLines.forEach((line) => {
+    if (line === "") {
+      summaryY += 4
+    } else {
+      doc.text(line, margin, summaryY)
+      summaryY += 6
+    }
   })
+
+  // Image Analysis Results Section
+  doc.setFontSize(16)
+  doc.setTextColor(52, 73, 94)
+  doc.text("Image Analysis Results", margin, summaryY + 10)
+
+  summaryY += 25
+
+  // Create a compact results table for first page
+  const compactResults = results.slice(0, Math.min(8, results.length)) // Show first 8 results
+
+  doc.setFontSize(9)
+  doc.setTextColor(60, 60, 60)
+
+  // Table headers
+  const headers = ["#", "Date", "Time", "Weather", "Temp", "Wind", "Trend"]
+  let xPos = margin
+  const colWidths = [15, 25, 20, 35, 20, 20, 25]
+
+  // Draw header
+  doc.setFontSize(9)
+  doc.setTextColor(52, 73, 94)
+  doc.setFont("helvetica", "bold")
+  headers.forEach((header, i) => {
+    doc.text(header, xPos, summaryY)
+    xPos += colWidths[i]
+  })
+
+  summaryY += 8
+  doc.setFont("helvetica", "normal")
+  doc.setTextColor(60, 60, 60)
+
+  // Draw data rows
+  compactResults.forEach((result) => {
+    xPos = margin
+    const rowData = [
+      result.imageIndex.toString(),
+      result.date.length > 10 ? result.date.substring(0, 8) + ".." : result.date,
+      result.time,
+      result.weather.length > 15 ? result.weather.substring(0, 13) + ".." : result.weather,
+      result.temperature === "N/A" ? "N/A" : result.temperature + "°F",
+      result.windDirection,
+      result.tempTrend,
+    ]
+
+    rowData.forEach((data, i) => {
+      doc.text(data, xPos, summaryY)
+      xPos += colWidths[i]
+    })
+    summaryY += 6
+  })
+
+  // Show "more results on page 2" if there are more images
+  if (results.length > 8) {
+    doc.setFontSize(9)
+    doc.setTextColor(100, 100, 100)
+    doc.text(`... and ${results.length - 8} more results (see complete table on Page 2)`, margin, summaryY + 5)
+  }
 
   // PAGE 2: DATA TABLE
   doc.addPage()
