@@ -80,7 +80,7 @@ async function generatePDF(results: any[]) {
     console.warn("Could not load logo:", error)
   }
 
-  // Helper function to add footer to all pages
+  // Helper function to add footer to all pages with descriptive labels
   const addFooter = () => {
     const totalPages = doc.getNumberOfPages()
     for (let i = 1; i <= totalPages; i++) {
@@ -90,11 +90,22 @@ async function generatePDF(results: any[]) {
       doc.setFillColor(52, 73, 94)
       doc.rect(0, pageHeight - 12, pageWidth, 12, "F")
 
-      // Footer text
+      // Footer text with page descriptions
       doc.setFontSize(9)
       doc.setTextColor(255, 255, 255)
       doc.text("www.deerstats.com", pageWidth / 2, pageHeight - 6, { align: "center" })
-      doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 6, { align: "right" })
+
+      // Add descriptive page labels
+      let pageLabel = ""
+      if (i === 1) {
+        pageLabel = "Summary"
+      } else if (i === 2) {
+        pageLabel = "Data Table"
+      } else {
+        pageLabel = `Image #${i - 2}`
+      }
+
+      doc.text(`Page ${i} of ${totalPages} - ${pageLabel}`, pageWidth - margin, pageHeight - 6, { align: "right" })
     }
   }
 
@@ -190,14 +201,18 @@ async function generatePDF(results: any[]) {
   // PAGE 2: DATA TABLE
   doc.addPage()
 
-  // Header for page 2
+  // Header for page 2 with prominent identification
   if (logoDataUrl) {
     doc.addImage(logoDataUrl, "PNG", margin, 15, 20, 20)
   }
 
   doc.setFontSize(18)
   doc.setTextColor(52, 73, 94)
-  doc.text("Detailed Analysis Results", margin + 25, 25)
+  doc.text("Page 2 - Detailed Analysis Results", margin + 25, 25)
+
+  doc.setFontSize(12)
+  doc.setTextColor(100, 100, 100)
+  doc.text("Complete Data Table with Weather Analysis", margin + 25, 32)
 
   // Prepare table data
   const tableData = results.map((r) => [
@@ -254,14 +269,18 @@ async function generatePDF(results: any[]) {
 
     const result = results[i]
 
-    // Header
+    // Header with clear page and image identification
     if (logoDataUrl) {
       doc.addImage(logoDataUrl, "PNG", margin, 15, 15, 15)
     }
 
     doc.setFontSize(16)
     doc.setTextColor(52, 73, 94)
-    doc.text(`Image Analysis #${result.imageIndex}`, margin + 20, 25)
+    doc.text(`Page ${doc.getCurrentPageInfo().pageNumber} - Image Analysis #${result.imageIndex}`, margin + 20, 25)
+
+    doc.setFontSize(10)
+    doc.setTextColor(100, 100, 100)
+    doc.text(`Analyzed Image ${i + 1} of ${results.length}`, margin + 20, 32)
 
     // Try to load and display the analyzed image
     try {
