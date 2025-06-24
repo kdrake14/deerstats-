@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { ImageUploader } from "@/components/image-uploader"
 import { ImagePreview } from "@/components/image-preview"
-import { Loader2, Download, CheckCircle, AlertCircle, FileText } from "lucide-react"
+import { processImages } from "@/lib/actions"
+import { Loader2, Download, CheckCircle, AlertCircle } from "lucide-react"
 import { upload } from "@vercel/blob/client"
 
 export type UploadedImage = {
@@ -21,9 +22,10 @@ type ProcessingStatus = "idle" | "processing" | "success" | "error"
 export function ImageProcessor() {
   const [images, setImages] = useState<UploadedImage[]>([])
   const [status, setStatus] = useState<ProcessingStatus>("idle")
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [csvUrl, setCsvUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
+  const [analysisResults, setAnalysisResults] = useState<Array<{ date: string; time: string }> | null>(null)
 
   const handleUpload = (newImages: UploadedImage[]) => {
     const imagesWithStatus = newImages.map((img) => ({
@@ -85,27 +87,13 @@ export function ImageProcessor() {
       const uploadedImages = await Promise.all(uploadPromises)
       const imageUrls = uploadedImages.map((img) => img.blobUrl!).filter(Boolean)
 
-      // Call the analyze-images API
-      const response = await fetch("/api/analyze-images", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ imageUrls }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`API request failed: ${response.statusText}`)
-      }
-
-      // Create a blob URL from the PDF response
-      const pdfBlob = await response.blob()
-      const pdfUrl = URL.createObjectURL(pdfBlob)
-
-      setPdfUrl(pdfUrl)
+      // Then process the uploaded image URLs
+      const result = await processImages(imageUrls)
+      setCsvUrl(result.csvUrl)
+      setAnalysisResults(result.dateTimeData) // Store the date/time array
       setStatus("success")
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to analyze images")
+      setError(err instanceof Error ? err.message : "Failed to process images")
       setStatus("error")
     }
   }
@@ -113,8 +101,9 @@ export function ImageProcessor() {
   const handleReset = () => {
     setImages([])
     setStatus("idle")
-    setPdfUrl(null)
+    setCsvUrl(null)
     setError(null)
+    setAnalysisResults(null)
   }
 
   return (
@@ -150,16 +139,39 @@ export function ImageProcessor() {
             </div>
           )}
 
-          {status === "success" && (
+          {status === "success" && analysisResults && (
             <div className="bg-green-50 p-4 rounded-md">
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3 mb-4">
                 <CheckCircle className="h-5 w-5 text-green-500 mt-0.5" />
                 <div>
-                  <h4 className="font-medium text-green-800">Analysis complete</h4>
+                  <h4 className="font-medium text-green-800">Processing complete</h4>
                   <p className="text-green-700 text-sm">
-                    Successfully analyzed {images.length} images and generated a comprehensive weather analysis report
-                    with timestamps, wind direction, weather conditions, and temperature trends.
+                    Extracted date and time information from {analysisResults.length} images.
                   </p>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <h5 className="font-medium text-green-800 mb-2">Extracted Data:</h5>
+                <div className="bg-white rounded border max-h-40 overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Image</th>
+                        <th className="px-3 py-2 text-left">Date</th>
+                        <th className="px-3 py-2 text-left">Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {analysisResults.map((result, index) => (
+                        <tr key={index} className="border-t">
+                          <td className="px-3 py-2">Image {index + 1}</td>
+                          <td className="px-3 py-2">{result.date}</td>
+                          <td className="px-3 py-2">{result.time}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -168,24 +180,23 @@ export function ImageProcessor() {
           <div className="flex flex-wrap gap-3">
             {status === "idle" && (
               <Button onClick={handleProcess} disabled={images.length === 0}>
-                <FileText className="mr-2 h-4 w-4" />
-                Generate Weather Report
+                Process Images
               </Button>
             )}
 
             {status === "processing" && (
               <Button disabled>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Generating Report...
+                Processing...
               </Button>
             )}
 
-            {status === "success" && pdfUrl && (
+            {status === "success" && csvUrl && (
               <>
                 <Button asChild variant="default">
-                  <a href={pdfUrl} download="weather_analysis_report.pdf">
+                  <a href={csvUrl} download="processed-results.csv">
                     <Download className="mr-2 h-4 w-4" />
-                    Download PDF Report
+                    Download CSV
                   </a>
                 </Button>
                 <Button variant="outline" onClick={handleReset}>
