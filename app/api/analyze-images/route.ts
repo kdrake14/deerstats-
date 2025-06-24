@@ -51,13 +51,70 @@ async function fetchWeatherData(timestamp: number, lat: number, lon: number, api
   }
 }
 
-// Generate weather analysis summary
-function generateWeatherAnalysis(results: any[]) {
+// Generate deer activity analysis
+function generateDeerActivityAnalysis(results: any[]) {
   const validResults = results.filter((r) => r.date !== "error" && r.date !== "not found")
 
   if (validResults.length === 0) {
-    return "No valid weather data available for analysis."
+    return "Insufficient data available for deer activity analysis."
   }
+
+  // Month analysis
+  const months = validResults
+    .filter((r) => r.date !== "not found")
+    .map((r) => {
+      const date = new Date(r.date)
+      return date.toLocaleString("default", { month: "long" })
+    })
+
+  const monthCounts = months.reduce(
+    (acc, month) => {
+      acc[month] = (acc[month] || 0) + 1
+      return acc
+    },
+    {} as Record<string, number>,
+  )
+
+  const topMonth = Object.entries(monthCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || "unknown"
+
+  // Time analysis
+  const times = validResults
+    .filter((r) => r.time !== "not found")
+    .map((r) => {
+      const hour = Number.parseInt(r.time.split(":")[0])
+      return hour
+    })
+
+  const timeCounts = times.reduce(
+    (acc, hour) => {
+      acc[hour] = (acc[hour] || 0) + 1
+      return acc
+    },
+    {} as Record<number, number>,
+  )
+
+  const topTimes = Object.entries(timeCounts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 2)
+    .map(([hour]) => {
+      const h = Number.parseInt(hour)
+      const period = h >= 12 ? "PM" : "AM"
+      const displayHour = h === 0 ? 12 : h > 12 ? h - 12 : h
+      return `${displayHour}:00 ${period}`
+    })
+
+  // Weather conditions
+  const weatherConditions = validResults.filter((r) => r.weather !== "N/A").map((r) => r.weather.toLowerCase())
+
+  const weatherCounts = weatherConditions.reduce(
+    (acc, condition) => {
+      acc[condition] = (acc[condition] || 0) + 1
+      return acc
+    },
+    {} as Record<string, number>,
+  )
+
+  const topWeather = Object.entries(weatherCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || "unknown"
 
   // Temperature analysis
   const temperatures = validResults
@@ -69,21 +126,17 @@ function generateWeatherAnalysis(results: any[]) {
   const minTemp = temperatures.length > 0 ? Math.min(...temperatures) : 0
   const maxTemp = temperatures.length > 0 ? Math.max(...temperatures) : 0
 
-  // Weather conditions analysis
-  const weatherConditions = validResults.filter((r) => r.weather !== "N/A").map((r) => r.weather.toLowerCase())
-
-  const conditionCounts = weatherConditions.reduce(
-    (acc, condition) => {
-      acc[condition] = (acc[condition] || 0) + 1
-      return acc
-    },
-    {} as Record<string, number>,
-  )
-
-  const mostCommonCondition = Object.entries(conditionCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || "unknown"
+  let tempRange = ""
+  if (minTemp === maxTemp) {
+    tempRange = `around ${avgTemp}°F`
+  } else if (maxTemp - minTemp <= 10) {
+    tempRange = `in the ${minTemp}°F to ${maxTemp}°F range`
+  } else {
+    tempRange = `in the low ${Math.floor(minTemp / 10) * 10}s to upper ${Math.floor(maxTemp / 10) * 10}s`
+  }
 
   // Wind direction analysis
-  const windDirections = validResults.filter((r) => r.windDirection !== "N/A").map((r) => r.windDirection)
+  const windDirections = validResults.filter((r) => r.windDirection !== "N/A").map((r) => r.windDirection.toLowerCase())
 
   const windCounts = windDirections.reduce(
     (acc, direction) => {
@@ -93,42 +146,24 @@ function generateWeatherAnalysis(results: any[]) {
     {} as Record<string, number>,
   )
 
-  const predominantWind = Object.entries(windCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || "variable"
+  const topWinds = Object.entries(windCounts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 2)
+    .map(([direction]) => direction)
 
-  // Temperature trends
-  const risingTrends = validResults.filter((r) => r.tempTrend === "Rising").length
-  const fallingTrends = validResults.filter((r) => r.tempTrend === "Falling").length
-  const stableTrends = validResults.filter((r) => r.tempTrend === "Stable").length
+  // Trend analysis
+  const tempTrends = validResults.filter((r) => r.tempTrend !== "N/A" && r.tempTrend !== "Stable")
+  const pressureTrends = validResults.filter((r) => r.pressureTrend !== "N/A" && r.pressureTrend !== "Stable")
 
-  // Time period analysis
-  const timeRanges = validResults
-    .filter((r) => r.time !== "not found")
-    .map((r) => {
-      const hour = Number.parseInt(r.time.split(":")[0])
-      if (hour >= 6 && hour < 12) return "Morning"
-      if (hour >= 12 && hour < 18) return "Afternoon"
-      if (hour >= 18 && hour < 24) return "Evening"
-      return "Night"
-    })
-
-  const timeCounts = timeRanges.reduce(
-    (acc, period) => {
-      acc[period] = (acc[period] || 0) + 1
-      return acc
-    },
-    {} as Record<string, number>,
-  )
+  const activeTrends = tempTrends.length > 0 || pressureTrends.length > 0
 
   return {
-    avgTemp,
-    minTemp,
-    maxTemp,
-    mostCommonCondition,
-    predominantWind,
-    risingTrends,
-    fallingTrends,
-    stableTrends,
-    timeCounts,
+    topMonth,
+    topTimes,
+    topWeather,
+    tempRange,
+    topWinds,
+    activeTrends,
     validCount: validResults.length,
   }
 }
@@ -144,7 +179,7 @@ async function generatePDF(results: any[]) {
   // Load logo
   let logoDataUrl = ""
   try {
-    const logoResponse = await fetch("https://www.deerstats.com/deer-stats-logo.png")
+    const logoResponse = await fetch("/deer-stats-logo.png")
     if (logoResponse.ok) {
       const logoBuffer = await logoResponse.arrayBuffer()
       const logoBase64 = Buffer.from(logoBuffer).toString("base64")
@@ -179,7 +214,7 @@ async function generatePDF(results: any[]) {
     }
   }
 
-  // PAGE 1: SUMMARY PAGE WITH WEATHER ANALYSIS
+  // PAGE 1: DEER ACTIVITY SUMMARY
 
   // Logo positioned next to title
   if (logoDataUrl) {
@@ -230,88 +265,80 @@ async function generatePDF(results: any[]) {
     summaryY += 6
   })
 
-  // Weather and Time Analysis Section - Split into two columns
-  summaryY += 10
-  doc.setFontSize(16)
+  // SUMMARY - Deer Stats Section
+  summaryY += 15
+  doc.setFontSize(18)
   doc.setTextColor(52, 73, 94)
-  doc.text("Weather & Time Analysis", margin, summaryY)
+  doc.text("SUMMARY - Deer Stats", margin, summaryY)
 
   summaryY += 15
-  const analysis = generateWeatherAnalysis(results)
+  const analysis = generateDeerActivityAnalysis(results)
 
   if (typeof analysis === "string") {
-    doc.setFontSize(10)
+    doc.setFontSize(12)
     doc.setTextColor(60, 60, 60)
     doc.text(analysis, margin, summaryY)
   } else {
+    // Create the deer activity summary
+    doc.setFontSize(12)
+    doc.setTextColor(60, 60, 60)
+
+    const timeText =
+      analysis.topTimes.length > 0
+        ? analysis.topTimes.length === 1
+          ? `around ${analysis.topTimes[0]}`
+          : `around ${analysis.topTimes[0]} or ${analysis.topTimes[1]}`
+        : "during peak activity hours"
+
+    const windText =
+      analysis.topWinds.length > 0
+        ? analysis.topWinds.length === 1
+          ? `from the ${analysis.topWinds[0]}`
+          : `from the ${analysis.topWinds[0]} or ${analysis.topWinds[1]}`
+        : "with variable wind direction"
+
+    const trendText = analysis.activeTrends
+      ? "and both temperature and pressure are trending either rising or falling"
+      : "with stable atmospheric conditions"
+
+    const summaryText = `You're most likely to see a deer in ${analysis.topMonth}, ${timeText}, when the weather is ${analysis.topWeather}, the temperature is ${analysis.tempRange}, the wind is ${windText}, ${trendText}.`
+
+    // Split the text into multiple lines for better readability
+    const lines = doc.splitTextToSize(summaryText, pageWidth - 2 * margin)
+
+    lines.forEach((line: string) => {
+      doc.text(line, margin, summaryY)
+      summaryY += 8
+    })
+
+    // Add detailed breakdown
+    summaryY += 15
+    doc.setFontSize(14)
+    doc.setTextColor(52, 73, 94)
+    doc.text("Detailed Analysis Breakdown", margin, summaryY)
+
+    summaryY += 12
     doc.setFontSize(10)
     doc.setTextColor(60, 60, 60)
 
-    // Left column content
-    const leftColumnX = margin
-    const rightColumnX = pageWidth / 2 + 10
-    let leftY = summaryY
-    let rightY = summaryY
-
-    // Left Column - Temperature & Weather Analysis
-    doc.setFont("helvetica", "bold")
-    doc.text("Temperature Analysis:", leftColumnX, leftY)
-    leftY += 8
-    doc.setFont("helvetica", "normal")
-
-    const leftColumnLines = [
-      `• Average temperature: ${analysis.avgTemp}°F`,
-      `• Temperature range: ${analysis.minTemp}°F to ${analysis.maxTemp}°F`,
-      `• Rising trends: ${analysis.risingTrends} images`,
-      `• Falling trends: ${analysis.fallingTrends} images`,
-      `• Stable trends: ${analysis.stableTrends} images`,
+    const breakdownLines = [
+      `Peak Month: ${analysis.topMonth} (most deer sightings)`,
+      `Optimal Times: ${analysis.topTimes.join(", ")} (highest activity periods)`,
+      `Weather Conditions: ${analysis.topWeather} (most favorable conditions)`,
+      `Temperature Range: ${analysis.tempRange} (optimal comfort zone)`,
+      `Wind Direction: ${analysis.topWinds.join(" or ")} (preferred wind patterns)`,
+      `Atmospheric Trends: ${analysis.activeTrends ? "Active pressure/temperature changes" : "Stable conditions"}`,
       "",
-      "Weather Conditions:",
-      `• Most common condition: ${analysis.mostCommonCondition}`,
-      `• Predominant wind direction: ${analysis.predominantWind}`,
+      `Analysis based on ${analysis.validCount} successfully processed images with complete weather data.`,
     ]
 
-    leftColumnLines.forEach((line) => {
+    breakdownLines.forEach((line) => {
       if (line === "") {
-        leftY += 4
-      } else if (line.endsWith(":")) {
-        doc.setFont("helvetica", "bold")
-        doc.text(line, leftColumnX, leftY)
-        leftY += 8
-        doc.setFont("helvetica", "normal")
+        summaryY += 4
       } else {
-        doc.text(line, leftColumnX, leftY)
-        leftY += 6
+        doc.text(line, margin, summaryY)
+        summaryY += 7
       }
-    })
-
-    // Right Column - Time Period & Data Quality
-    doc.setFont("helvetica", "bold")
-    doc.text("Time Period Distribution:", rightColumnX, rightY)
-    rightY += 8
-    doc.setFont("helvetica", "normal")
-
-    // Add time period breakdown
-    Object.entries(analysis.timeCounts).forEach(([period, count]) => {
-      doc.text(`• ${period}: ${count} images`, rightColumnX, rightY)
-      rightY += 6
-    })
-
-    rightY += 4
-    doc.setFont("helvetica", "bold")
-    doc.text("Data Quality Assessment:", rightColumnX, rightY)
-    rightY += 8
-    doc.setFont("helvetica", "normal")
-
-    const rightColumnLines = [
-      `• Successfully analyzed: ${analysis.validCount} images`,
-      `• Weather pattern trend: ${analysis.risingTrends > analysis.fallingTrends ? "warming" : analysis.fallingTrends > analysis.risingTrends ? "cooling" : "stable"}`,
-      `• Wind pattern: ${analysis.predominantWind} directional`,
-    ]
-
-    rightColumnLines.forEach((line) => {
-      doc.text(line, rightColumnX, rightY)
-      rightY += 6
     })
   }
 
