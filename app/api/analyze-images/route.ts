@@ -51,120 +51,87 @@ async function fetchWeatherData(timestamp: number, lat: number, lon: number, api
   }
 }
 
-// Generate deer activity analysis
-function generateDeerActivityAnalysis(results: any[]) {
+// Generate deer activity analysis using OpenAI
+async function generateDeerActivityAnalysis(results: any[]) {
   const validResults = results.filter((r) => r.date !== "error" && r.date !== "not found")
 
   if (validResults.length === 0) {
     return "Insufficient data available for deer activity analysis."
   }
 
-  // Month analysis
-  const months = validResults
-    .filter((r) => r.date !== "not found")
-    .map((r) => {
-      const date = new Date(r.date)
-      return date.toLocaleString("default", { month: "long" })
+  // Prepare data summary for OpenAI
+  const dataSummary = validResults.map((r) => ({
+    date: r.date,
+    time: r.time,
+    weather: r.weather,
+    temperature: r.temperature,
+    windDirection: r.windDirection,
+    tempTrend: r.tempTrend,
+    pressureTrend: r.pressureTrend,
+  }))
+
+  try {
+    const analysisSchema = z.object({
+      topMonth: z.string().describe("The month with the most deer activity based on the data"),
+      optimalTimes: z
+        .array(z.string())
+        .describe("The best times of day for deer activity (e.g., '6:00 AM', '7:00 PM')"),
+      favorableWeather: z.string().describe("The weather condition most associated with deer activity"),
+      temperatureRange: z
+        .string()
+        .describe("The optimal temperature range for deer activity (e.g., 'in the 60s to 70s')"),
+      windPatterns: z.array(z.string()).describe("Preferred wind directions for deer activity"),
+      atmosphericTrends: z
+        .boolean()
+        .describe("Whether active atmospheric changes (rising/falling pressure/temperature) correlate with activity"),
+      summary: z
+        .string()
+        .describe("A natural, engaging summary sentence about when you're most likely to see deer based on this data"),
     })
 
-  const monthCounts = months.reduce(
-    (acc, month) => {
-      acc[month] = (acc[month] || 0) + 1
-      return acc
-    },
-    {} as Record<string, number>,
-  )
+    const result = await generateObject({
+      model: openai("gpt-4o"),
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a wildlife behavior expert specializing in deer activity patterns. Analyze the provided weather and timing data to determine optimal conditions for deer sightings. Focus on practical hunting and wildlife observation insights.",
+        },
+        {
+          role: "user",
+          content: `Analyze this deer sighting data and weather conditions to determine the optimal patterns for deer activity. 
 
-  const topMonth = Object.entries(monthCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || "unknown"
+Data points: ${JSON.stringify(dataSummary, null, 2)}
 
-  // Time analysis
-  const times = validResults
-    .filter((r) => r.time !== "not found")
-    .map((r) => {
-      const hour = Number.parseInt(r.time.split(":")[0])
-      return hour
+Please identify:
+1. The month with most activity
+2. The best times of day (limit to top 2)
+3. The most favorable weather conditions
+4. The optimal temperature range
+5. Preferred wind directions (limit to top 2)
+6. Whether atmospheric changes (pressure/temperature trends) correlate with activity
+7. A natural summary sentence about when deer are most likely to be seen
+
+Base your analysis on the frequency and patterns in the actual data provided.`,
+        },
+      ],
+      schema: analysisSchema,
     })
 
-  const timeCounts = times.reduce(
-    (acc, hour) => {
-      acc[hour] = (acc[hour] || 0) + 1
-      return acc
-    },
-    {} as Record<number, number>,
-  )
-
-  const topTimes = Object.entries(timeCounts)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 2)
-    .map(([hour]) => {
-      const h = Number.parseInt(hour)
-      const period = h >= 12 ? "PM" : "AM"
-      const displayHour = h === 0 ? 12 : h > 12 ? h - 12 : h
-      return `${displayHour}:00 ${period}`
-    })
-
-  // Weather conditions
-  const weatherConditions = validResults.filter((r) => r.weather !== "N/A").map((r) => r.weather.toLowerCase())
-
-  const weatherCounts = weatherConditions.reduce(
-    (acc, condition) => {
-      acc[condition] = (acc[condition] || 0) + 1
-      return acc
-    },
-    {} as Record<string, number>,
-  )
-
-  const topWeather = Object.entries(weatherCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || "unknown"
-
-  // Temperature analysis
-  const temperatures = validResults
-    .filter((r) => r.temperature !== "N/A" && !isNaN(Number.parseInt(r.temperature)))
-    .map((r) => Number.parseInt(r.temperature))
-
-  const avgTemp =
-    temperatures.length > 0 ? Math.round(temperatures.reduce((a, b) => a + b, 0) / temperatures.length) : 0
-  const minTemp = temperatures.length > 0 ? Math.min(...temperatures) : 0
-  const maxTemp = temperatures.length > 0 ? Math.max(...temperatures) : 0
-
-  let tempRange = ""
-  if (minTemp === maxTemp) {
-    tempRange = `around ${avgTemp}°F`
-  } else if (maxTemp - minTemp <= 10) {
-    tempRange = `in the ${minTemp}°F to ${maxTemp}°F range`
-  } else {
-    tempRange = `in the low ${Math.floor(minTemp / 10) * 10}s to upper ${Math.floor(maxTemp / 10) * 10}s`
-  }
-
-  // Wind direction analysis
-  const windDirections = validResults.filter((r) => r.windDirection !== "N/A").map((r) => r.windDirection.toLowerCase())
-
-  const windCounts = windDirections.reduce(
-    (acc, direction) => {
-      acc[direction] = (acc[direction] || 0) + 1
-      return acc
-    },
-    {} as Record<string, number>,
-  )
-
-  const topWinds = Object.entries(windCounts)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 2)
-    .map(([direction]) => direction)
-
-  // Trend analysis
-  const tempTrends = validResults.filter((r) => r.tempTrend !== "N/A" && r.tempTrend !== "Stable")
-  const pressureTrends = validResults.filter((r) => r.pressureTrend !== "N/A" && r.pressureTrend !== "Stable")
-
-  const activeTrends = tempTrends.length > 0 || pressureTrends.length > 0
-
-  return {
-    topMonth,
-    topTimes,
-    topWeather,
-    tempRange,
-    topWinds,
-    activeTrends,
-    validCount: validResults.length,
+    return {
+      topMonth: result.object.topMonth,
+      topTimes: result.object.optimalTimes,
+      topWeather: result.object.favorableWeather,
+      tempRange: result.object.temperatureRange,
+      topWinds: result.object.windPatterns,
+      activeTrends: result.object.atmosphericTrends,
+      validCount: validResults.length,
+      aiSummary: result.object.summary,
+    }
+  } catch (error) {
+    console.error("Error generating AI analysis:", error)
+    // Fallback to simple message if AI analysis fails
+    return "Analysis temporarily unavailable. Please try again later."
   }
 }
 
@@ -279,29 +246,13 @@ async function generatePDF(results: any[]) {
     doc.setTextColor(60, 60, 60)
     doc.text(analysis, margin, summaryY)
   } else {
-    // Create the deer activity summary
+    // Use the AI-generated summary
     doc.setFontSize(12)
     doc.setTextColor(60, 60, 60)
 
-    const timeText =
-      analysis.topTimes.length > 0
-        ? analysis.topTimes.length === 1
-          ? `around ${analysis.topTimes[0]}`
-          : `around ${analysis.topTimes[0]} or ${analysis.topTimes[1]}`
-        : "during peak activity hours"
-
-    const windText =
-      analysis.topWinds.length > 0
-        ? analysis.topWinds.length === 1
-          ? `from the ${analysis.topWinds[0]}`
-          : `from the ${analysis.topWinds[0]} or ${analysis.topWinds[1]}`
-        : "with variable wind direction"
-
-    const trendText = analysis.activeTrends
-      ? "and both temperature and pressure are trending either rising or falling"
-      : "with stable atmospheric conditions"
-
-    const summaryText = `You're most likely to see a deer in ${analysis.topMonth}, ${timeText}, when the weather is ${analysis.topWeather}, the temperature is ${analysis.tempRange}, the wind is ${windText}, ${trendText}.`
+    const summaryText =
+      analysis.aiSummary ||
+      `You're most likely to see a deer in ${analysis.topMonth}, around ${analysis.topTimes.join(" or ")}, when the weather is ${analysis.topWeather}, the temperature is ${analysis.tempRange}, the wind is from the ${analysis.topWinds.join(" or ")}, ${analysis.activeTrends ? "and atmospheric conditions are changing" : "with stable atmospheric conditions"}.`
 
     // Split the text into multiple lines for better readability
     const lines = doc.splitTextToSize(summaryText, pageWidth - 2 * margin)
