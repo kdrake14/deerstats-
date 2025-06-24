@@ -75,8 +75,8 @@ async function generatePDF(results: any[]) {
   const logoWidth = 16.66
   const logoHeight = 25
   const logoX = margin
-  const logoY = 10
-  doc.addImage(logoDataUrl, "PNG", logoX, logoY, logoWidth, logoHeight)
+  const logoY = 25
+  doc.addImage(logoDataUrl, "PNG", logoX, logoY-15, logoWidth, logoHeight)
 
   // Draw header title next to logo, vertically aligned with the logo
   const titleText = "Weather Data Analysis Report"
@@ -143,7 +143,7 @@ async function generatePDF(results: any[]) {
       const totalPages = doc.getNumberOfPages()
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i)
-        const footerText = "YourWebsite.com" // replace as needed
+        const footerText = "www.deerstats.com" // replace as needed
         doc.setFontSize(8)
         doc.text(footerText, pageWidth / 2, pageHeight - 8, { align: "center" })
       }
