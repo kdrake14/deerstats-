@@ -16,7 +16,7 @@ const RequestSchema = z.object({
   imageUrls: z.array(z.string().url()),
 })
 
-// Helper to run tasks in batches
+// Helper: run in batches
 async function runInBatches<T>(
   items: string[],
   batchSize: number,
@@ -31,15 +31,13 @@ async function runInBatches<T>(
   return results
 }
 
-// Kelvin to Fahrenheit conversion
-const kelvinToFahrenheit = (kelvin: number): number => Math.round(((kelvin - 273.15) * 9) / 5 + 32)
-
+// Kelvin to Fahrenheit
+const kelvinToFahrenheit = (k: number) => Math.round(((k - 273.15) * 9) / 5 + 32)
 // Trends
-const getTemperatureTrend = (currentKelvin: number, previousKelvin: number): string =>
-  currentKelvin > previousKelvin ? "Rising" : currentKelvin < previousKelvin ? "Falling" : "Stable"
-
-const getPressureTrend = (currentPressure: number, previousPressure: number): string =>
-  currentPressure > previousPressure ? "Rising" : currentPressure < previousPressure ? "Falling" : "Stable"
+const getTemperatureTrend = (currentK: number, prevK: number) =>
+  currentK > prevK ? "Rising" : currentK < prevK ? "Falling" : "Stable"
+const getPressureTrend = (currentP: number, prevP: number) =>
+  currentP > prevP ? "Rising" : currentP < prevP ? "Falling" : "Stable"
 
 // Fetch weather data
 async function fetchWeatherData(timestamp: number, lat: number, lon: number, apiKey: string) {
@@ -47,57 +45,63 @@ async function fetchWeatherData(timestamp: number, lat: number, lon: number, api
   try {
     const response = await axios.get(url)
     return response.data
-  } catch (error) {
-    console.error(`Error fetching weather for timestamp ${timestamp}:`, error)
-    throw error
+  } catch (err) {
+    console.error(`Error fetching weather at ${timestamp}:`, err)
+    throw err
   }
 }
 
-// Load image as base64 string from URL
+// Load image as base64 string from URL (for server-side Node.js)
 async function loadImageBase64(imageUrl: string): Promise<string> {
   const response = await axios.get(imageUrl, { responseType: "arraybuffer" })
+  const mimeType = response.headers['content-type'] || 'image/png'
   const base64 = Buffer.from(response.data).toString("base64")
-  // Return a data URI for PNG images
-  return `data:${response.headers['content-type']};base64,${base64}`
+  return `data:${mimeType};base64,${base64}`
 }
 
-// Generate PDF with embedded logo and footer
+// Generate PDF
 async function generatePDF(results: any[]) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" })
-
-  // Load logo from URL
-  const logoUrl = "https://www.deerstats.com/deer-stats-logo.png"
-  const logoDataUrl = await loadImageBase64(logoUrl)
 
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
   const margin = 10
 
-  // Draw logo at top center
+  // Load logo
+  const logoUrl = "https://www.deerstats.com/deer-stats-logo.png"
+  const logoDataUrl = await loadImageBase64(logoUrl)
+
+  // Draw logo on the left
   const logoWidth = 40
+  const logoHeight = 15
+  const logoX = margin
   const logoY = 10
-  doc.addImage(logoDataUrl, "PNG", (pageWidth - logoWidth) / 2, logoY, logoWidth, 15)
+  doc.addImage(logoDataUrl, "PNG", logoX, logoY, logoWidth, logoHeight)
 
-  // Title and info
+  // Draw header title next to logo, vertically aligned with the logo
+  const titleText = "Weather Data Analysis Report"
+  const titleX = logoX + logoWidth + 5 // small gap
+  const titleY = logoY + logoHeight / 2 + 3 // approximate vertical centering
   doc.setFontSize(18)
-  doc.text("Weather Data Analysis Report", margin, logoY + 25)
+  doc.text(titleText, titleX, titleY)
 
+  // Add info below header
   doc.setFontSize(10)
   const now = new Date()
-  doc.text(`Generated on: ${now.toLocaleString()}`, margin, logoY + 30)
-  doc.text(`Total Images Analyzed: ${results.length}`, margin, logoY + 36)
+  doc.text(`Generated on: ${now.toLocaleString()}`, margin, logoY + 25)
+  doc.text(`Total Images Analyzed: ${results.length}`, margin, logoY + 31)
 
   // Prepare table data
-  const tableData = results.map((res) => [
-    res.imageIndex.toString(),
-    res.date,
-    res.time,
-    res.windDirection,
-    res.weather.length > 12 ? res.weather.substring(0, 10) + ".." : res.weather,
-    res.weatherSixHoursPrior.length > 12 ? res.weatherSixHoursPrior.substring(0, 10) + ".." : res.weatherSixHoursPrior,
-    res.temperature + "°F",
-    res.tempTrend,
-    res.pressureTrend,
+  const tableData = results.map((r) => [
+    r.imageIndex.toString(),
+    r.date,
+    r.time,
+    r.windDirection,
+    r.weather.length > 12 ? r.weather.substring(0, 10) + ".." : r.weather,
+    r.weatherSixHoursPrior.length > 12 ? r.weatherSixHoursPrior.substring(0, 10) + ".." : r.weatherSixHoursPrior,
+    r.temperature + "°F",
+    r.tempTrend,
+    r.pressureTrend,
   ])
 
   const availableWidth = pageWidth - 2 * margin
@@ -139,39 +143,38 @@ async function generatePDF(results: any[]) {
       const totalPages = doc.getNumberOfPages()
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i)
-        const footerText = "YourWebsite.com" // Replace with actual site
+        const footerText = "YourWebsite.com" // replace as needed
         doc.setFontSize(8)
         doc.text(footerText, pageWidth / 2, pageHeight - 8, { align: "center" })
       }
     }
   })
 
-  // Add a summary section at the end
+  // Add summary
   const finalY = (doc as any).lastAutoTable?.finalY || logoY + 45
   if (finalY < pageHeight - 60) {
     doc.setFontSize(12)
     doc.text("Summary", margin, finalY + 15)
 
     doc.setFontSize(9)
-    const successCount = results.filter(r => r.date !== "error" && r.date !== "not found").length
-    const errorCount = results.filter(r => r.date === "error").length
-    const notFoundCount = results.filter(r => r.date === "not found").length
+    const successCount = results.filter((r) => r.date !== "error" && r.date !== "not found").length
+    const errorCount = results.filter((r) => r.date === "error").length
+    const notFoundCount = results.filter((r) => r.date === "not found").length
 
     doc.text(`Successfully processed: ${successCount} images`, margin, finalY + 25)
     doc.text(`Errors encountered: ${errorCount} images`, margin, finalY + 32)
     doc.text(`No timestamp found: ${notFoundCount} images`, margin, finalY + 39)
 
-    // Add notes
+    // Notes
     doc.setFontSize(7)
     doc.text("Note: Weather descriptions may be abbreviated.", margin, finalY + 50)
-    doc.text("Temperature values are in °F.", margin, finalY + 55)
+    doc.text("Temperature in Fahrenheit (°F).", margin, finalY + 55)
   }
 
-  // Return as ArrayBuffer
   return doc.output("arraybuffer")
 }
 
-// Main API handler
+// The main API handler
 export async function POST(request: NextRequest) {
   try {
     const { imageUrls } = RequestSchema.parse(await request.json())
@@ -182,7 +185,7 @@ export async function POST(request: NextRequest) {
 
     const analyzeImage = async (url: string, index: number) => {
       try {
-        // Extract date/time from image
+        // Extract date/time info
         const result = await generateObject({
           model: openai("gpt-4o"),
           messages: [
@@ -191,7 +194,7 @@ export async function POST(request: NextRequest) {
               content: [
                 {
                   type: "text",
-                  text: "Analyze this image and extract visible date and time information. Look for timestamps, date stamps, clock displays, calendar dates, or indicators. Use the most prominent/relevant if multiple.",
+                  text: "Analyze this image and extract any visible date and time information. Focus on timestamps, date stamps, clock displays, calendar dates or indicators. Use the most prominent or relevant one if multiple.",
                 },
                 {
                   type: "image",
@@ -220,17 +223,18 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Create UNIX timestamp from date & time
+        // Build timestamp
         const dateTimeStr = `${date}T${time}:00-05:00` // assuming EDT
         const timestamp = Math.floor(new Date(dateTimeStr).getTime() / 1000)
-        const priorTimestamp = timestamp - 6 * 3600
+        const sixHoursPrior = timestamp - 6 * 3600
 
-        // Fetch weather for current and 6 hours prior
+        // Fetch weather data
         const weatherData = await fetchWeatherData(timestamp, lat, lon, apiKey)
-        const priorWeatherData = await fetchWeatherData(priorTimestamp, lat, lon, apiKey)
+        const priorWeatherData = await fetchWeatherData(sixHoursPrior, lat, lon, apiKey)
 
         const currentWeather = weatherData.data[0]
         const priorWeather = priorWeatherData.data[0]
+
         // Wind direction
         const windDeg = currentWeather.wind_deg
         const windDir =
@@ -300,8 +304,8 @@ export async function POST(request: NextRequest) {
     })
   } catch (err) {
     return new Response(JSON.stringify({ success: false, error: err.message }), {
-      status: 500,
       headers: { "Content-Type": "application/json" },
+      status: 500,
     })
   }
 }
