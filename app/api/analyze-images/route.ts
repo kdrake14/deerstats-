@@ -239,7 +239,7 @@ async function generatePDF(results: any[]) {
   doc.text("SUMMARY - Deer Stats", margin, summaryY)
 
   summaryY += 15
-  const analysis = generateDeerActivityAnalysis(results)
+  const analysis = await generateDeerActivityAnalysis(results)
 
   if (typeof analysis === "string") {
     doc.setFontSize(12)
