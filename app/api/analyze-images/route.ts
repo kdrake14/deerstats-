@@ -1,3 +1,5 @@
+// pages/api/weather-report.ts
+
 import { generateObject } from "ai"
 import { openai } from "@ai-sdk/openai"
 import { z } from "zod"
@@ -5,41 +7,38 @@ import type { NextRequest } from "next/server"
 import axios from "axios"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
+import sizeOf from "image-size" // for image dimension detection
 
-// Define schemas for validation
+// Data validation schemas
 const DateTimeSchema = z.object({
-  date: z.string().describe("The date found in the image in YYYY-MM-DD format, or 'not found' if no date is visible"),
-  time: z.string().describe("The time found in the image in HH:MM format, or 'not found' if no time is visible"),
+  date: z.string().describe("The date in YYYY-MM-DD or 'not found'"),
+  time: z.string().describe("Time in HH:MM or 'not found'"),
 })
 
 const RequestSchema = z.object({
   imageUrls: z.array(z.string().url()),
 })
 
-// Helper: run in batches
-async function runInBatches<T>(
-  items: string[],
-  batchSize: number,
-  handler: (item: string, index: number) => Promise<T>,
-): Promise<T[]> {
-  const results: T[] = []
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize)
-    const batchResults = await Promise.all(batch.map((item, idx) => handler(item, i + idx)))
-    results.push(...batchResults)
-  }
-  return results
+// Load image from URL, keep aspect ratio
+async function loadImageWithSize(imageUrl: string): Promise<{ dataUrl: string; width: number; height: number }> {
+  const response = await axios.get(imageUrl, { responseType: "arraybuffer" })
+  const mimeType = response.headers['content-type'] || 'image/png'
+  const buffer = Buffer.from(response.data)
+  const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`
+  const dimensions = sizeOf(buffer)
+  return { dataUrl, width: dimensions.width, height: dimensions.height }
 }
 
-// Kelvin to Fahrenheit
+// Helper functions for weather data and trends
 const kelvinToFahrenheit = (k: number) => Math.round(((k - 273.15) * 9) / 5 + 32)
-// Trends
+
 const getTemperatureTrend = (currentK: number, prevK: number) =>
   currentK > prevK ? "Rising" : currentK < prevK ? "Falling" : "Stable"
+
 const getPressureTrend = (currentP: number, prevP: number) =>
   currentP > prevP ? "Rising" : currentP < prevP ? "Falling" : "Stable"
 
-// Fetch weather data
+// Fetch historical weather data
 async function fetchWeatherData(timestamp: number, lat: number, lon: number, apiKey: string) {
   const url = `https://api.openweathermap.org/data/3.0/onecall/timemachine?lat=${lat}&lon=${lon}&dt=${timestamp}&appid=${apiKey}`
   try {
@@ -51,15 +50,7 @@ async function fetchWeatherData(timestamp: number, lat: number, lon: number, api
   }
 }
 
-// Load image as base64 string from URL (for server-side Node.js)
-async function loadImageBase64(imageUrl: string): Promise<string> {
-  const response = await axios.get(imageUrl, { responseType: "arraybuffer" })
-  const mimeType = response.headers['content-type'] || 'image/png'
-  const base64 = Buffer.from(response.data).toString("base64")
-  return `data:${mimeType};base64,${base64}`
-}
-
-// Generate PDF
+// Generate PDF with header and table
 async function generatePDF(results: any[]) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" })
 
@@ -67,25 +58,28 @@ async function generatePDF(results: any[]) {
   const pageHeight = doc.internal.pageSize.getHeight()
   const margin = 10
 
-  // Load logo
+  // Load logo and get dimensions
   const logoUrl = "https://www.deerstats.com/deer-stats-logo.png"
-  const logoDataUrl = await loadImageBase64(logoUrl)
+  const logoInfo = await loadImageWithSize(logoUrl)
 
-  // Draw logo on the left
-  const logoWidth = 40
-  const logoHeight = 15
+  // Scale logo to fit within 40mm width while keeping aspect ratio
+  const maxWidth = 40
+  const scaleRatio = maxWidth / logoInfo.width
+  const scaledHeight = logoInfo.height * scaleRatio
+
   const logoX = margin
   const logoY = 10
-  doc.addImage(logoDataUrl, "PNG", logoX, logoY, logoWidth, logoHeight)
+  // Draw logo
+  doc.addImage(logoInfo.dataUrl, "PNG", logoX, logoY, maxWidth, scaledHeight)
 
-  // Draw header title next to logo, vertically aligned with the logo
+  // Draw title next to logo, vertically aligned
   const titleText = "Weather Data Analysis Report"
-  const titleX = logoX + logoWidth + 5 // small gap
-  const titleY = logoY + logoHeight / 2 + 3 // approximate vertical centering
+  const titleX = logoX + maxWidth + 5
+  const titleY = logoY + scaledHeight / 2 + 3 // approximate vertical centering
   doc.setFontSize(18)
   doc.text(titleText, titleX, titleY)
 
-  // Add info below header
+  // Additional info below header
   doc.setFontSize(10)
   const now = new Date()
   doc.text(`Generated on: ${now.toLocaleString()}`, margin, logoY + 25)
@@ -143,14 +137,14 @@ async function generatePDF(results: any[]) {
       const totalPages = doc.getNumberOfPages()
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i)
-        const footerText = "YourWebsite.com" // replace as needed
+        const footerText = "www.deerstats.com" // replace as needed
         doc.setFontSize(8)
         doc.text(footerText, pageWidth / 2, pageHeight - 8, { align: "center" })
       }
     }
   })
 
-  // Add summary
+  // Add summary at the end
   const finalY = (doc as any).lastAutoTable?.finalY || logoY + 45
   if (finalY < pageHeight - 60) {
     doc.setFontSize(12)
@@ -174,7 +168,7 @@ async function generatePDF(results: any[]) {
   return doc.output("arraybuffer")
 }
 
-// The main API handler
+// Main API handler
 export async function POST(request: NextRequest) {
   try {
     const { imageUrls } = RequestSchema.parse(await request.json())
@@ -223,8 +217,8 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Build timestamp
-        const dateTimeStr = `${date}T${time}:00-05:00` // assuming EDT
+        // Build timestamps
+        const dateTimeStr = `${date}T${time}:00-05:00` // modify as needed for timezone
         const timestamp = Math.floor(new Date(dateTimeStr).getTime() / 1000)
         const sixHoursPrior = timestamp - 6 * 3600
 
@@ -257,9 +251,7 @@ export async function POST(request: NextRequest) {
         const weatherDesc = currentWeather.weather[0]?.description || "N/A"
         const priorDesc = priorWeather.weather[0]?.description || "N/A"
 
-        const temp = kelvinToFahrenheit(currentWeather.temp)
-        const priorTemp = kelvinToFahrenheit(priorWeather.temp)
-
+        const tempF = kelvinToFahrenheit(currentWeather.temp)
         const tempTrend = getTemperatureTrend(currentWeather.temp, priorWeather.temp)
         const pressureTrend = getPressureTrend(currentWeather.pressure, priorWeather.pressure)
 
@@ -271,7 +263,7 @@ export async function POST(request: NextRequest) {
           windDirection: windDir,
           weather: weatherDesc,
           weatherSixHoursPrior: priorDesc,
-          temperature: temp.toString(),
+          temperature: tempF.toString(),
           tempTrend,
           pressureTrend,
         }
