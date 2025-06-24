@@ -75,83 +75,87 @@ function generatePDF(results: any[]) {
   doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 32)
   doc.text(`Total Images Analyzed: ${results.length}`, 14, 40)
 
-  // Prepare table data
+  // Prepare table data with shortened URLs
   const tableData = results.map((result) => [
     result.imageIndex.toString(),
     result.date,
     result.time,
     result.windDirection,
-    result.weather,
-    result.weatherSixHoursPrior,
+    result.weather.length > 15 ? result.weather.substring(0, 12) + "..." : result.weather,
+    result.weatherSixHoursPrior.length > 15
+      ? result.weatherSixHoursPrior.substring(0, 12) + "..."
+      : result.weatherSixHoursPrior,
     result.temperature,
     result.tempTrend,
     result.pressureTrend,
   ])
 
-  // Add table
+  // Calculate available width (page width minus margins)
+  const pageWidth = doc.internal.pageSize.width
+  const margins = 14
+  const availableWidth = pageWidth - margins * 2
+
+  // Add table with responsive column widths
   autoTable(doc, {
-    head: [
-      [
-        "Image #",
-        "Date",
-        "Time",
-        "Wind Dir.",
-        "Weather",
-        "Weather 6h Prior",
-        "Temp (°F)",
-        "Temp Trend",
-        "Pressure Trend",
-      ],
-    ],
+    head: [["#", "Date", "Time", "Wind", "Weather", "Weather 6h", "Temp", "T.Trend", "P.Trend"]],
     body: tableData,
     startY: 50,
     styles: {
-      fontSize: 8,
-      cellPadding: 2,
+      fontSize: 7,
+      cellPadding: 1.5,
+      overflow: "linebreak",
+      cellWidth: "wrap",
     },
     headStyles: {
       fillColor: [66, 139, 202],
       textColor: 255,
-      fontSize: 9,
+      fontSize: 8,
       fontStyle: "bold",
     },
     alternateRowStyles: {
       fillColor: [245, 245, 245],
     },
     columnStyles: {
-      0: { cellWidth: 15 }, // Image #
-      1: { cellWidth: 25 }, // Date
-      2: { cellWidth: 20 }, // Time
-      3: { cellWidth: 20 }, // Wind Dir
-      4: { cellWidth: 30 }, // Weather
-      5: { cellWidth: 30 }, // Weather 6h Prior
-      6: { cellWidth: 20 }, // Temp
-      7: { cellWidth: 25 }, // Temp Trend
-      8: { cellWidth: 25 }, // Pressure Trend
+      0: { cellWidth: availableWidth * 0.08 }, // # - 8%
+      1: { cellWidth: availableWidth * 0.15 }, // Date - 15%
+      2: { cellWidth: availableWidth * 0.12 }, // Time - 12%
+      3: { cellWidth: availableWidth * 0.1 }, // Wind - 10%
+      4: { cellWidth: availableWidth * 0.18 }, // Weather - 18%
+      5: { cellWidth: availableWidth * 0.18 }, // Weather 6h - 18%
+      6: { cellWidth: availableWidth * 0.08 }, // Temp - 8%
+      7: { cellWidth: availableWidth * 0.11 }, // T.Trend - 11%
+      8: { cellWidth: availableWidth * 0.11 }, // P.Trend - 11%
     },
-    margin: { top: 50, left: 14, right: 14 },
+    margin: { top: 50, left: margins, right: margins },
+    tableWidth: "auto",
     didDrawPage: (data) => {
       // Add page numbers
       const pageCount = doc.getNumberOfPages()
       doc.setFontSize(10)
-      doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, doc.internal.pageSize.height - 10)
+      doc.text(`Page ${data.pageNumber} of ${pageCount}`, margins, doc.internal.pageSize.height - 10)
     },
   })
 
   // Add summary section if there's space
   const finalY = (doc as any).lastAutoTable.finalY || 50
-  if (finalY < doc.internal.pageSize.height - 60) {
+  if (finalY < doc.internal.pageSize.height - 80) {
     doc.setFontSize(14)
-    doc.text("Summary", 14, finalY + 20)
+    doc.text("Summary", margins, finalY + 20)
 
     doc.setFontSize(10)
     const successCount = results.filter((r) => r.date !== "error" && r.date !== "not found").length
     const errorCount = results.filter((r) => r.date === "error").length
     const notFoundCount = results.filter((r) => r.date === "not found").length
 
-    doc.text(`Successfully processed: ${successCount} images`, 14, finalY + 30)
-    doc.text(`Errors encountered: ${errorCount} images`, 14, finalY + 38)
-    doc.text(`No timestamp found: ${notFoundCount} images`, 14, finalY + 46)
+    doc.text(`Successfully processed: ${successCount} images`, margins, finalY + 30)
+    doc.text(`Errors encountered: ${errorCount} images`, margins, finalY + 38)
+    doc.text(`No timestamp found: ${notFoundCount} images`, margins, finalY + 46)
+
+    // Add a note about abbreviated content
+    if (results.some((r) => r.weather.length > 15 || r.weatherSixHoursPrior.length > 15)) {
+      doc.setFontSize(8)
+      doc.text("Note: Some weather descriptions have been abbreviated to fit the table format.", margins, finalY + 58)
+    }
   }
 
   return doc.output("arraybuffer")
