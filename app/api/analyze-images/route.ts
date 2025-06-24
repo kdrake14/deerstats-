@@ -1,7 +1,8 @@
-import type { NextRequest } from "next/server"
 import { generateObject } from "ai"
 import { openai } from "@ai-sdk/openai"
 import { z } from "zod"
+import type { NextRequest } from "next/server"
+import axios from "axios"
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 
@@ -48,43 +49,24 @@ const getPressureTrend = (currentPressure: number, previousPressure: number): st
 async function fetchWeatherData(timestamp: number, lat: number, lon: number, apiKey: string) {
   const url = `https://api.openweathermap.org/data/3.0/onecall/timemachine?lat=${lat}&lon=${lon}&dt=${timestamp}&appid=${apiKey}`
   try {
-    const response = await fetch(url)
-    const data = await response.json()
-    console.log(`Weather API response for timestamp ${timestamp}:`, JSON.stringify(data, null, 2))
-    return data
+    const response = await axios.get(url)
+    console.log(`Weather API response for timestamp ${timestamp}:`, JSON.stringify(response.data, null, 2))
+    return response.data
   } catch (error) {
     console.error(`Error fetching weather data for timestamp ${timestamp}:`, error)
+    if (axios.isAxiosError(error)) {
+      console.error("Response status:", error.response?.status)
+      console.error("Response data:", error.response?.data)
+    }
     throw error
   }
 }
 
-// Helper function to add logo to PDF
-async function addLogoToPDF(doc: jsPDF, x: number, y: number, width: number, height: number) {
-  try {
-    // Use the public logo file
-    const logoResponse = await fetch("/deer-stats-logo.png")
-    if (logoResponse.ok) {
-      const logoBlob = await logoResponse.blob()
-      const logoBase64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result as string)
-        reader.readAsDataURL(logoBlob)
-      })
-
-      // Add logo to PDF
-      doc.addImage(logoBase64, "PNG", x, y, width, height)
-    }
-  } catch (error) {
-    console.error("Error adding logo to PDF:", error)
-    // Continue without logo if there's an error
-  }
-}
-
-// Helper function to generate PDF with table format
-async function generatePDF(results: any[]) {
-  // Use A4 portrait for better table readability
+// Helper function to generate PDF with custom size
+function generatePDF(results: any[]) {
+  // Use A4 landscape for more width, or custom size
   const doc = new jsPDF({
-    orientation: "portrait",
+    orientation: "landscape",
     unit: "mm",
     format: "a4",
   })
@@ -92,51 +74,51 @@ async function generatePDF(results: any[]) {
   // Get page dimensions
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
-  const margins = 15
+  const margins = 10
 
-  // Add logo
-  await addLogoToPDF(doc, margins, 10, 25, 12)
-
-  // Add title with branding
+  // Add title
   doc.setFontSize(18)
-  doc.setTextColor(52, 73, 94) // Dark blue-gray color
-  doc.text("Deer Stats - Weather Analysis Report", margins + 30, 18)
+  doc.text("Weather Data Analysis Report", margins, 20)
 
   // Add generation date and info
   doc.setFontSize(10)
-  doc.setTextColor(100, 100, 100) // Gray color
-  doc.text(`Generated on: ${new Date().toLocaleString()}`, margins + 30, 25)
-  doc.text(`Total Images Analyzed: ${results.length}`, margins + 30, 30)
+  doc.text(`Generated on: ${new Date().toLocaleString()}`, margins, 30)
+  doc.text(`Total Images Analyzed: ${results.length}`, margins, 36)
 
-  // Prepare table data
+  // Prepare table data with truncated content
   const tableData = results.map((result) => [
     result.imageIndex.toString(),
-    result.date || "N/A",
-    result.time || "N/A",
-    result.windDirection || "N/A",
-    result.weather || "N/A",
-    result.weatherSixHoursPrior || "N/A",
-    result.temperature ? `${result.temperature}°F` : "N/A",
-    result.tempTrend || "N/A",
-    result.pressureTrend || "N/A",
+    result.date,
+    result.time,
+    result.windDirection,
+    // Truncate weather descriptions to fit
+    result.weather.length > 12 ? result.weather.substring(0, 10) + ".." : result.weather,
+    result.weatherSixHoursPrior.length > 12
+      ? result.weatherSixHoursPrior.substring(0, 10) + ".."
+      : result.weatherSixHoursPrior,
+    result.temperature + "°F",
+    result.tempTrend,
+    result.pressureTrend,
   ])
 
-  // Add table with autoTable
+  // Calculate available width
+  const availableWidth = pageWidth - margins * 2
+
+  // Add table with optimized column widths for landscape
   autoTable(doc, {
-    head: [["#", "Date", "Time", "Wind Dir", "Weather", "Weather 6h Prior", "Temp", "Temp Trend", "Pressure Trend"]],
+    head: [["#", "Date", "Time", "Wind", "Weather", "Weather 6h", "Temp", "T.Trend", "P.Trend"]],
     body: tableData,
-    startY: 40,
-    margin: { top: 40, left: margins, right: margins, bottom: 30 },
+    startY: 45,
+    margin: { top: 45, left: margins, right: margins, bottom: 20 },
     styles: {
       fontSize: 8,
-      cellPadding: 3,
+      cellPadding: 2,
       overflow: "linebreak",
       cellWidth: "wrap",
       halign: "center",
-      valign: "middle",
     },
     headStyles: {
-      fillColor: [52, 73, 94], // Match the title color
+      fillColor: [66, 139, 202],
       textColor: 255,
       fontSize: 9,
       fontStyle: "bold",
@@ -146,60 +128,44 @@ async function generatePDF(results: any[]) {
       fillColor: [245, 245, 245],
     },
     columnStyles: {
-      0: { cellWidth: 15 }, // #
-      1: { cellWidth: 25 }, // Date
-      2: { cellWidth: 20 }, // Time
-      3: { cellWidth: 20 }, // Wind Dir
-      4: { cellWidth: 30 }, // Weather
-      5: { cellWidth: 30 }, // Weather 6h Prior
-      6: { cellWidth: 20 }, // Temp
-      7: { cellWidth: 20 }, // Temp Trend
-      8: { cellWidth: 25 }, // Pressure Trend
+      0: { cellWidth: availableWidth * 0.06 }, // # - 6%
+      1: { cellWidth: availableWidth * 0.14 }, // Date - 14%
+      2: { cellWidth: availableWidth * 0.1 }, // Time - 10%
+      3: { cellWidth: availableWidth * 0.08 }, // Wind - 8%
+      4: { cellWidth: availableWidth * 0.16 }, // Weather - 16%
+      5: { cellWidth: availableWidth * 0.16 }, // Weather 6h - 16%
+      6: { cellWidth: availableWidth * 0.1 }, // Temp - 10%
+      7: { cellWidth: availableWidth * 0.1 }, // T.Trend - 10%
+      8: { cellWidth: availableWidth * 0.1 }, // P.Trend - 10%
     },
+    tableWidth: availableWidth,
     didDrawPage: (data) => {
       // Add page numbers
       const pageCount = doc.getNumberOfPages()
       doc.setFontSize(8)
-      doc.setTextColor(100, 100, 100)
-      doc.text(`Page ${data.pageNumber} of ${pageCount}`, pageWidth - margins - 30, pageHeight - 15)
-
-      // Add footer branding
-      doc.setFontSize(9)
-      doc.setTextColor(52, 73, 94)
-      doc.text("Generated by Deer Stats Weather Analysis Platform", margins, pageHeight - 10)
+      doc.text(`Page ${data.pageNumber} of ${pageCount}`, pageWidth - margins - 30, pageHeight - 10)
     },
   })
 
-  // Add summary section after table
-  const finalY = (doc as any).lastAutoTable.finalY || 40
-  if (finalY < pageHeight - 80) {
+  // Add summary section
+  const finalY = (doc as any).lastAutoTable.finalY || 45
+  if (finalY < pageHeight - 60) {
     doc.setFontSize(12)
-    doc.setTextColor(52, 73, 94)
-    doc.text("Analysis Summary", margins, finalY + 15)
+    doc.text("Summary", margins, finalY + 15)
 
     doc.setFontSize(9)
-    doc.setTextColor(100, 100, 100)
     const successCount = results.filter((r) => r.date !== "error" && r.date !== "not found").length
     const errorCount = results.filter((r) => r.date === "error").length
     const notFoundCount = results.filter((r) => r.date === "not found").length
 
-    doc.text(`✓ Successfully processed: ${successCount} images`, margins, finalY + 25)
-    doc.text(`⚠ Errors encountered: ${errorCount} images`, margins, finalY + 32)
-    doc.text(`ℹ No timestamp found: ${notFoundCount} images`, margins, finalY + 39)
+    doc.text(`Successfully processed: ${successCount} images`, margins, finalY + 25)
+    doc.text(`Errors encountered: ${errorCount} images`, margins, finalY + 32)
+    doc.text(`No timestamp found: ${notFoundCount} images`, margins, finalY + 39)
 
-    // Add note about data
+    // Add note about data formatting
     doc.setFontSize(7)
-    doc.setTextColor(120, 120, 120)
-    doc.text(
-      "Note: Weather data is fetched from OpenWeatherMap API based on extracted timestamps.",
-      margins,
-      finalY + 50,
-    )
-    doc.text(
-      "Temperature values are displayed in Fahrenheit (°F). Trends compare current vs 6-hour prior conditions.",
-      margins,
-      finalY + 55,
-    )
+    doc.text("Note: Weather descriptions may be abbreviated to fit the table format.", margins, finalY + 50)
+    doc.text("Temperature values are displayed in Fahrenheit (°F).", margins, finalY + 55)
   }
 
   return doc.output("arraybuffer")
@@ -267,7 +233,9 @@ export async function POST(request: NextRequest) {
 
         // Fetch weather data for the timestamp
         const weatherData = await fetchWeatherData(timestamp, lat, lon, apiKey)
+        console.log(weatherData)
         const priorWeatherData = await fetchWeatherData(sixHoursPriorTimestamp, lat, lon, apiKey)
+        console.log(priorWeatherData)
 
         const currentWeather = weatherData.data[0]
         const priorWeather = priorWeatherData.data[0]
@@ -335,14 +303,14 @@ export async function POST(request: NextRequest) {
     // Process with concurrency limit of 3 to avoid rate limits
     const results = await runInBatches(imageUrls, 3, analyzeImage)
 
-    // Generate PDF with table
-    const pdfBuffer = await generatePDF(results)
+    // Generate PDF
+    const pdfBuffer = generatePDF(results)
 
     return new Response(pdfBuffer, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": "attachment; filename=deer_stats_weather_analysis_report.pdf",
+        "Content-Disposition": "attachment; filename=weather_analysis_report.pdf",
       },
     })
   } catch (error) {
