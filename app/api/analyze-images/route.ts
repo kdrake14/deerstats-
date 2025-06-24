@@ -310,36 +310,6 @@ async function generatePDF(results: any[]) {
       doc.text(line, margin, summaryY)
       summaryY += 8
     })
-
-    // Add detailed breakdown
-    summaryY += 15
-    doc.setFontSize(14)
-    doc.setTextColor(52, 73, 94)
-    doc.text("Detailed Analysis Breakdown", margin, summaryY)
-
-    summaryY += 12
-    doc.setFontSize(10)
-    doc.setTextColor(60, 60, 60)
-
-    const breakdownLines = [
-      `Peak Month: ${analysis.topMonth} (most deer sightings)`,
-      `Optimal Times: ${analysis.topTimes.join(", ")} (highest activity periods)`,
-      `Weather Conditions: ${analysis.topWeather} (most favorable conditions)`,
-      `Temperature Range: ${analysis.tempRange} (optimal comfort zone)`,
-      `Wind Direction: ${analysis.topWinds.join(" or ")} (preferred wind patterns)`,
-      `Atmospheric Trends: ${analysis.activeTrends ? "Active pressure/temperature changes" : "Stable conditions"}`,
-      "",
-      `Analysis based on ${analysis.validCount} successfully processed images with complete weather data.`,
-    ]
-
-    breakdownLines.forEach((line) => {
-      if (line === "") {
-        summaryY += 4
-      } else {
-        doc.text(line, margin, summaryY)
-        summaryY += 7
-      }
-    })
   }
 
   // PAGE 2: DATA TABLE
