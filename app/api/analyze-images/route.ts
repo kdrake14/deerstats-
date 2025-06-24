@@ -230,7 +230,7 @@ async function generatePDF(results: any[]) {
     summaryY += 6
   })
 
-  // Weather and Time Analysis Section
+  // Weather and Time Analysis Section - Split into two columns
   summaryY += 10
   doc.setFontSize(16)
   doc.setTextColor(52, 73, 94)
@@ -247,46 +247,71 @@ async function generatePDF(results: any[]) {
     doc.setFontSize(10)
     doc.setTextColor(60, 60, 60)
 
-    const analysisLines = [
-      `Temperature Analysis:`,
-      `  • Average temperature across all analyzed images: ${analysis.avgTemp}°F`,
-      `  • Temperature range: ${analysis.minTemp}°F to ${analysis.maxTemp}°F`,
-      `  • Temperature trends: ${analysis.risingTrends} rising, ${analysis.fallingTrends} falling, ${analysis.stableTrends} stable`,
+    // Left column content
+    const leftColumnX = margin
+    const rightColumnX = pageWidth / 2 + 10
+    let leftY = summaryY
+    let rightY = summaryY
+
+    // Left Column - Temperature & Weather Analysis
+    doc.setFont("helvetica", "bold")
+    doc.text("Temperature Analysis:", leftColumnX, leftY)
+    leftY += 8
+    doc.setFont("helvetica", "normal")
+
+    const leftColumnLines = [
+      `• Average temperature: ${analysis.avgTemp}°F`,
+      `• Temperature range: ${analysis.minTemp}°F to ${analysis.maxTemp}°F`,
+      `• Rising trends: ${analysis.risingTrends} images`,
+      `• Falling trends: ${analysis.fallingTrends} images`,
+      `• Stable trends: ${analysis.stableTrends} images`,
       "",
-      `Weather Conditions:`,
-      `  • Most common weather condition: ${analysis.mostCommonCondition}`,
-      `  • Predominant wind direction: ${analysis.predominantWind}`,
-      "",
-      `Time Period Distribution:`,
+      "Weather Conditions:",
+      `• Most common condition: ${analysis.mostCommonCondition}`,
+      `• Predominant wind direction: ${analysis.predominantWind}`,
     ]
+
+    leftColumnLines.forEach((line) => {
+      if (line === "") {
+        leftY += 4
+      } else if (line.endsWith(":")) {
+        doc.setFont("helvetica", "bold")
+        doc.text(line, leftColumnX, leftY)
+        leftY += 8
+        doc.setFont("helvetica", "normal")
+      } else {
+        doc.text(line, leftColumnX, leftY)
+        leftY += 6
+      }
+    })
+
+    // Right Column - Time Period & Data Quality
+    doc.setFont("helvetica", "bold")
+    doc.text("Time Period Distribution:", rightColumnX, rightY)
+    rightY += 8
+    doc.setFont("helvetica", "normal")
 
     // Add time period breakdown
     Object.entries(analysis.timeCounts).forEach(([period, count]) => {
-      analysisLines.push(`  • ${period}: ${count} images`)
+      doc.text(`• ${period}: ${count} images`, rightColumnX, rightY)
+      rightY += 6
     })
 
-    analysisLines.push("")
-    analysisLines.push(`Data Quality Assessment:`)
-    analysisLines.push(`  • Successfully analyzed ${analysis.validCount} images with complete weather data`)
-    analysisLines.push(
-      `  • Weather patterns show ${analysis.risingTrends > analysis.fallingTrends ? "predominantly warming" : analysis.fallingTrends > analysis.risingTrends ? "predominantly cooling" : "stable"} temperature trends`,
-    )
-    analysisLines.push(
-      `  • Wind patterns indicate ${analysis.predominantWind} directional preference during analyzed periods`,
-    )
+    rightY += 4
+    doc.setFont("helvetica", "bold")
+    doc.text("Data Quality Assessment:", rightColumnX, rightY)
+    rightY += 8
+    doc.setFont("helvetica", "normal")
 
-    analysisLines.forEach((line) => {
-      if (line === "") {
-        summaryY += 4
-      } else if (line.startsWith("  •")) {
-        doc.text(line, margin + 5, summaryY)
-        summaryY += 6
-      } else {
-        doc.setFont("helvetica", line.endsWith(":") ? "bold" : "normal")
-        doc.text(line, margin, summaryY)
-        summaryY += 6
-        doc.setFont("helvetica", "normal")
-      }
+    const rightColumnLines = [
+      `• Successfully analyzed: ${analysis.validCount} images`,
+      `• Weather pattern trend: ${analysis.risingTrends > analysis.fallingTrends ? "warming" : analysis.fallingTrends > analysis.risingTrends ? "cooling" : "stable"}`,
+      `• Wind pattern: ${analysis.predominantWind} directional`,
+    ]
+
+    rightColumnLines.forEach((line) => {
+      doc.text(line, rightColumnX, rightY)
+      rightY += 6
     })
   }
 
