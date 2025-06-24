@@ -62,9 +62,9 @@ async function fetchWeatherData(timestamp: number, lat: number, lon: number, api
   }
 }
 
-// Helper function to generate PDF with custom size
-function generatePDF(results: any[]) {
-  // Use A4 landscape for more width, or custom size
+// Helper function to generate PDF with logo and branding
+async function generatePDF(results: any[]) {
+  // Use A4 landscape for more width
   const doc = new jsPDF({
     orientation: "landscape",
     unit: "mm",
@@ -74,16 +74,33 @@ function generatePDF(results: any[]) {
   // Get page dimensions
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
-  const margins = 10
+  const margins = 15
 
-  // Add title
-  doc.setFontSize(18)
-  doc.text("Weather Data Analysis Report", margins, 20)
+  // Add logo to PDF header
+  try {
+    // Load the logo image
+    const logoResponse = await fetch("/deer-stats-logo.png")
+    if (logoResponse.ok) {
+      const logoBuffer = await logoResponse.arrayBuffer()
+      const logoBase64 = Buffer.from(logoBuffer).toString("base64")
+
+      // Add logo to PDF (top-left corner)
+      doc.addImage(`data:image/png;base64,${logoBase64}`, "PNG", margins, 10, 25, 25)
+    }
+  } catch (error) {
+    console.warn("Could not add logo to PDF:", error)
+  }
+
+  // Add title with logo space
+  doc.setFontSize(20)
+  doc.setTextColor(52, 73, 94) // Dark blue-gray
+  doc.text("Deer Stats - Weather Analysis Report", margins + 30, 20)
 
   // Add generation date and info
   doc.setFontSize(10)
-  doc.text(`Generated on: ${new Date().toLocaleString()}`, margins, 30)
-  doc.text(`Total Images Analyzed: ${results.length}`, margins, 36)
+  doc.setTextColor(100, 100, 100)
+  doc.text(`Generated on: ${new Date().toLocaleString()}`, margins + 30, 28)
+  doc.text(`Total Images Analyzed: ${results.length}`, margins + 30, 34)
 
   // Prepare table data with truncated content
   const tableData = results.map((result) => [
@@ -109,7 +126,7 @@ function generatePDF(results: any[]) {
     head: [["#", "Date", "Time", "Wind", "Weather", "Weather 6h", "Temp", "T.Trend", "P.Trend"]],
     body: tableData,
     startY: 45,
-    margin: { top: 45, left: margins, right: margins, bottom: 20 },
+    margin: { top: 45, left: margins, right: margins, bottom: 30 },
     styles: {
       fontSize: 8,
       cellPadding: 2,
@@ -118,7 +135,7 @@ function generatePDF(results: any[]) {
       halign: "center",
     },
     headStyles: {
-      fillColor: [66, 139, 202],
+      fillColor: [52, 73, 94], // Match title color
       textColor: 255,
       fontSize: 9,
       fontStyle: "bold",
@@ -140,32 +157,56 @@ function generatePDF(results: any[]) {
     },
     tableWidth: availableWidth,
     didDrawPage: (data) => {
-      // Add page numbers
+      // Add page numbers in header area
       const pageCount = doc.getNumberOfPages()
       doc.setFontSize(8)
-      doc.text(`Page ${data.pageNumber} of ${pageCount}`, pageWidth - margins - 30, pageHeight - 10)
+      doc.setTextColor(100, 100, 100)
+      doc.text(`Page ${data.pageNumber} of ${pageCount}`, pageWidth - margins - 30, 15)
     },
   })
 
   // Add summary section
   const finalY = (doc as any).lastAutoTable.finalY || 45
-  if (finalY < pageHeight - 60) {
+  if (finalY < pageHeight - 80) {
     doc.setFontSize(12)
-    doc.text("Summary", margins, finalY + 15)
+    doc.setTextColor(52, 73, 94)
+    doc.text("Analysis Summary", margins, finalY + 15)
 
     doc.setFontSize(9)
+    doc.setTextColor(100, 100, 100)
     const successCount = results.filter((r) => r.date !== "error" && r.date !== "not found").length
     const errorCount = results.filter((r) => r.date === "error").length
     const notFoundCount = results.filter((r) => r.date === "not found").length
 
-    doc.text(`Successfully processed: ${successCount} images`, margins, finalY + 25)
-    doc.text(`Errors encountered: ${errorCount} images`, margins, finalY + 32)
-    doc.text(`No timestamp found: ${notFoundCount} images`, margins, finalY + 39)
+    doc.text(`✓ Successfully processed: ${successCount} images`, margins, finalY + 25)
+    doc.text(`⚠ Errors encountered: ${errorCount} images`, margins, finalY + 32)
+    doc.text(`ℹ No timestamp found: ${notFoundCount} images`, margins, finalY + 39)
 
     // Add note about data formatting
     doc.setFontSize(7)
+    doc.setTextColor(120, 120, 120)
     doc.text("Note: Weather descriptions may be abbreviated to fit the table format.", margins, finalY + 50)
-    doc.text("Temperature values are displayed in Fahrenheit (°F).", margins, finalY + 55)
+    doc.text(
+      "Temperature values are displayed in Fahrenheit (°F). Data sourced from OpenWeatherMap API.",
+      margins,
+      finalY + 55,
+    )
+  }
+
+  // Add footer to all pages
+  const pageCount = doc.getNumberOfPages()
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i)
+
+    // Footer background
+    doc.setFillColor(52, 73, 94)
+    doc.rect(0, pageHeight - 15, pageWidth, 15, "F")
+
+    // Footer text
+    doc.setFontSize(9)
+    doc.setTextColor(255, 255, 255)
+    doc.text("Generated by Deer Stats Weather Analysis Platform", margins, pageHeight - 8)
+    doc.text("Visit us at: www.deerstats.com", pageWidth - margins - 50, pageHeight - 8)
   }
 
   return doc.output("arraybuffer")
