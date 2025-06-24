@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { ImageUploader } from "@/components/image-uploader"
 import { ImagePreview } from "@/components/image-preview"
-import { Loader2, Download, CheckCircle, AlertCircle } from "lucide-react"
+import { Loader2, Download, CheckCircle, AlertCircle, FileText } from "lucide-react"
 import { upload } from "@vercel/blob/client"
 
 export type UploadedImage = {
@@ -21,7 +21,7 @@ type ProcessingStatus = "idle" | "processing" | "success" | "error"
 export function ImageProcessor() {
   const [images, setImages] = useState<UploadedImage[]>([])
   const [status, setStatus] = useState<ProcessingStatus>("idle")
-  const [csvUrl, setCsvUrl] = useState<string | null>(null)
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
 
@@ -85,7 +85,7 @@ export function ImageProcessor() {
       const uploadedImages = await Promise.all(uploadPromises)
       const imageUrls = uploadedImages.map((img) => img.blobUrl!).filter(Boolean)
 
-      // Call the new analyze-images API
+      // Call the analyze-images API
       const response = await fetch("/api/analyze-images", {
         method: "POST",
         headers: {
@@ -98,11 +98,11 @@ export function ImageProcessor() {
         throw new Error(`API request failed: ${response.statusText}`)
       }
 
-      // Create a blob URL from the CSV response
-      const csvBlob = await response.blob()
-      const csvUrl = URL.createObjectURL(csvBlob)
+      // Create a blob URL from the PDF response
+      const pdfBlob = await response.blob()
+      const pdfUrl = URL.createObjectURL(pdfBlob)
 
-      setCsvUrl(csvUrl)
+      setPdfUrl(pdfUrl)
       setStatus("success")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to analyze images")
@@ -113,7 +113,7 @@ export function ImageProcessor() {
   const handleReset = () => {
     setImages([])
     setStatus("idle")
-    setCsvUrl(null)
+    setPdfUrl(null)
     setError(null)
   }
 
@@ -157,8 +157,8 @@ export function ImageProcessor() {
                 <div>
                   <h4 className="font-medium text-green-800">Analysis complete</h4>
                   <p className="text-green-700 text-sm">
-                    Successfully analyzed {images.length} images and extracted weather data including timestamps, wind
-                    direction, weather conditions, and temperature trends.
+                    Successfully analyzed {images.length} images and generated a comprehensive weather analysis report
+                    with timestamps, wind direction, weather conditions, and temperature trends.
                   </p>
                 </div>
               </div>
@@ -168,23 +168,24 @@ export function ImageProcessor() {
           <div className="flex flex-wrap gap-3">
             {status === "idle" && (
               <Button onClick={handleProcess} disabled={images.length === 0}>
-                Process Images
+                <FileText className="mr-2 h-4 w-4" />
+                Generate Weather Report
               </Button>
             )}
 
             {status === "processing" && (
               <Button disabled>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing...
+                Generating Report...
               </Button>
             )}
 
-            {status === "success" && csvUrl && (
+            {status === "success" && pdfUrl && (
               <>
                 <Button asChild variant="default">
-                  <a href={csvUrl} download="processed-results.csv">
+                  <a href={pdfUrl} download="weather_analysis_report.pdf">
                     <Download className="mr-2 h-4 w-4" />
-                    Download CSV
+                    Download PDF Report
                   </a>
                 </Button>
                 <Button variant="outline" onClick={handleReset}>

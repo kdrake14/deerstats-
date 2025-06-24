@@ -3,6 +3,8 @@ import { openai } from "@ai-sdk/openai"
 import { z } from "zod"
 import type { NextRequest } from "next/server"
 import axios from "axios"
+import jsPDF from "jspdf"
+import autoTable from "jspdf-autotable"
 
 const DateTimeSchema = z.object({
   date: z.string().describe("The date found in the image in YYYY-MM-DD format, or 'not found' if no date is visible"),
@@ -60,6 +62,101 @@ async function fetchWeatherData(timestamp: number, lat: number, lon: number, api
   }
 }
 
+// Helper function to generate PDF
+function generatePDF(results: any[]) {
+  const doc = new jsPDF()
+
+  // Add title
+  doc.setFontSize(20)
+  doc.text("Weather Data Analysis Report", 14, 22)
+
+  // Add generation date
+  doc.setFontSize(12)
+  doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 32)
+  doc.text(`Total Images Analyzed: ${results.length}`, 14, 40)
+
+  // Prepare table data
+  const tableData = results.map((result) => [
+    result.imageIndex.toString(),
+    result.date,
+    result.time,
+    result.windDirection,
+    result.weather,
+    result.weatherSixHoursPrior,
+    result.temperature,
+    result.tempTrend,
+    result.pressureTrend,
+  ])
+
+  // Add table
+  autoTable(doc, {
+    head: [
+      [
+        "Image #",
+        "Date",
+        "Time",
+        "Wind Dir.",
+        "Weather",
+        "Weather 6h Prior",
+        "Temp (°F)",
+        "Temp Trend",
+        "Pressure Trend",
+      ],
+    ],
+    body: tableData,
+    startY: 50,
+    styles: {
+      fontSize: 8,
+      cellPadding: 2,
+    },
+    headStyles: {
+      fillColor: [66, 139, 202],
+      textColor: 255,
+      fontSize: 9,
+      fontStyle: "bold",
+    },
+    alternateRowStyles: {
+      fillColor: [245, 245, 245],
+    },
+    columnStyles: {
+      0: { cellWidth: 15 }, // Image #
+      1: { cellWidth: 25 }, // Date
+      2: { cellWidth: 20 }, // Time
+      3: { cellWidth: 20 }, // Wind Dir
+      4: { cellWidth: 30 }, // Weather
+      5: { cellWidth: 30 }, // Weather 6h Prior
+      6: { cellWidth: 20 }, // Temp
+      7: { cellWidth: 25 }, // Temp Trend
+      8: { cellWidth: 25 }, // Pressure Trend
+    },
+    margin: { top: 50, left: 14, right: 14 },
+    didDrawPage: (data) => {
+      // Add page numbers
+      const pageCount = doc.getNumberOfPages()
+      doc.setFontSize(10)
+      doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, doc.internal.pageSize.height - 10)
+    },
+  })
+
+  // Add summary section if there's space
+  const finalY = (doc as any).lastAutoTable.finalY || 50
+  if (finalY < doc.internal.pageSize.height - 60) {
+    doc.setFontSize(14)
+    doc.text("Summary", 14, finalY + 20)
+
+    doc.setFontSize(10)
+    const successCount = results.filter((r) => r.date !== "error" && r.date !== "not found").length
+    const errorCount = results.filter((r) => r.date === "error").length
+    const notFoundCount = results.filter((r) => r.date === "not found").length
+
+    doc.text(`Successfully processed: ${successCount} images`, 14, finalY + 30)
+    doc.text(`Errors encountered: ${errorCount} images`, 14, finalY + 38)
+    doc.text(`No timestamp found: ${notFoundCount} images`, 14, finalY + 46)
+  }
+
+  return doc.output("arraybuffer")
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -102,7 +199,7 @@ export async function POST(request: NextRequest) {
 
         if (date === "not found" || time === "not found") {
           return {
-            imageIndex: index,
+            imageIndex: index + 1,
             imageUrl: url,
             date: date,
             time: time,
@@ -161,7 +258,7 @@ export async function POST(request: NextRequest) {
         const pressureTrend = getPressureTrend(currentWeather.pressure, priorWeather.pressure)
 
         return {
-          imageIndex: index,
+          imageIndex: index + 1,
           imageUrl: url,
           date: date,
           time: time,
@@ -175,7 +272,7 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error(`Error analyzing image ${url}:`, error)
         return {
-          imageIndex: index,
+          imageIndex: index + 1,
           imageUrl: url,
           date: "error",
           time: "error",
@@ -192,22 +289,14 @@ export async function POST(request: NextRequest) {
     // Process with concurrency limit of 3 to avoid rate limits
     const results = await runInBatches(imageUrls, 3, analyzeImage)
 
-    // Generate CSV content
-    const csvHeader =
-      "Image Index,Image URL,Date,Time,Wind Direction,Weather,Weather 6 Hours Prior,Temperature (F),Temperature Trend,Pressure Trend\n"
-    const csvRows = results
-      .map(
-        (result) =>
-          `${result.imageIndex},"${result.imageUrl}",${result.date},${result.time},${result.windDirection},${result.weather},${result.weatherSixHoursPrior},${result.temperature},${result.tempTrend},${result.pressureTrend}`,
-      )
-      .join("\n")
-    const csvContent = csvHeader + csvRows
+    // Generate PDF
+    const pdfBuffer = generatePDF(results)
 
-    return new Response(csvContent, {
+    return new Response(pdfBuffer, {
       status: 200,
       headers: {
-        "Content-Type": "text/csv",
-        "Content-Disposition": "attachment; filename=weather_data.csv",
+        "Content-Type": "application/pdf",
+        "Content-Disposition": "attachment; filename=weather_analysis_report.pdf",
       },
     })
   } catch (error) {
