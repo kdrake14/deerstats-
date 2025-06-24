@@ -75,13 +75,13 @@ async function generatePDF(results: any[]) {
   const logoWidth = 16.66
   const logoHeight = 25
   const logoX = margin
-  const logoY = 25
+  const logoY = 20
   doc.addImage(logoDataUrl, "PNG", logoX, logoY-15, logoWidth, logoHeight)
 
   // Draw header title next to logo, vertically aligned with the logo
   const titleText = "Weather Data Analysis Report"
   const titleX = logoX + logoWidth + 5 // small gap
-  const titleY = logoY + logoHeight / 2 + 3 // approximate vertical centering
+  const titleY = logoY - 10 + logoHeight / 2 + 3 // approximate vertical centering
   doc.setFontSize(18)
   doc.text(titleText, titleX, titleY)
 
