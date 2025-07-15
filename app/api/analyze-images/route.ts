@@ -179,6 +179,18 @@ Base your analysis on the frequency and patterns in the actual data provided.`,
   }
 }
 
+// Helper to count occurrences
+function countOccurrences(data: any[], key: string) {
+  const counts: Record<string, number> = {};
+  data.forEach((item) => {
+    const value = item[key];
+    if (value && value !== "N/A" && value !== "error") {
+      counts[value] = (counts[value] || 0) + 1;
+    }
+  });
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+}
+
 // Generate PDF with enhanced structure
 async function generatePDF(results: any[]) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -221,8 +233,10 @@ async function generatePDF(results: any[]) {
         pageLabel = "Summary";
       } else if (i === 2) {
         pageLabel = "Data Table";
+      } else if (i === 3) {
+        pageLabel = "Weather Patterns";
       } else {
-        pageLabel = `Image #${i - 2}`;
+        pageLabel = `Image #${i - 3}`;
       }
 
       doc.text(
@@ -410,6 +424,96 @@ async function generatePDF(results: any[]) {
       6: { cellWidth: availableWidth * 0.1 },
       7: { cellWidth: availableWidth * 0.1 },
       8: { cellWidth: availableWidth * 0.1 },
+    },
+  });
+
+  // PAGE 3: SUMMARY TABLES
+  doc.addPage();
+
+  // Header for summary tables
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, "PNG", margin, 15, 20, 20);
+  }
+
+  doc.setFontSize(18);
+  doc.setTextColor(52, 73, 94);
+  doc.text("Page 3 - Weather Pattern Summary", margin + 25, 25);
+
+  doc.setFontSize(12);
+  doc.setTextColor(100, 100, 100);
+  doc.text("Frequency Analysis of Weather Conditions", margin + 25, 32);
+
+  // Prepare data for tables
+  const weatherCounts = countOccurrences(results, "weather");
+  const tempTrendCounts = countOccurrences(results, "tempTrend");
+  const pressureTrendCounts = countOccurrences(results, "pressureTrend");
+  const windDirectionCounts = countOccurrences(results, "windDirection");
+
+  // Table layout calculations
+  const tableWidth = (pageWidth - 3 * margin) / 2;
+  const tableHeight = 60;
+  const leftColX = margin;
+  const rightColX = margin + tableWidth + margin;
+  const firstRowY = 45;
+  const secondRowY = firstRowY + tableHeight + 15;
+
+  // Weather Type Table (Top Left)
+  autoTable(doc, {
+    head: [["Weather Type", "Count"]],
+    body: weatherCounts,
+    startY: firstRowY,
+    margin: { left: leftColX, right: rightColX },
+    tableWidth: tableWidth,
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [52, 73, 94], textColor: 255 },
+    columnStyles: {
+      0: { cellWidth: "auto" },
+      1: { cellWidth: 30, halign: "right" },
+    },
+  });
+
+  // Temperature Trend Table (Top Right)
+  autoTable(doc, {
+    head: [["Temp Trend", "Count"]],
+    body: tempTrendCounts,
+    startY: firstRowY,
+    margin: { left: rightColX },
+    tableWidth: tableWidth,
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [52, 73, 94], textColor: 255 },
+    columnStyles: {
+      0: { cellWidth: "auto" },
+      1: { cellWidth: 30, halign: "right" },
+    },
+  });
+
+  // Pressure Trend Table (Bottom Left)
+  autoTable(doc, {
+    head: [["Pressure Trend", "Count"]],
+    body: pressureTrendCounts,
+    startY: secondRowY,
+    margin: { left: leftColX, right: rightColX },
+    tableWidth: tableWidth,
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [52, 73, 94], textColor: 255 },
+    columnStyles: {
+      0: { cellWidth: "auto" },
+      1: { cellWidth: 30, halign: "right" },
+    },
+  });
+
+  // Wind Direction Table (Bottom Right)
+  autoTable(doc, {
+    head: [["Wind Direction", "Count"]],
+    body: windDirectionCounts,
+    startY: secondRowY,
+    margin: { left: rightColX },
+    tableWidth: tableWidth,
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [52, 73, 94], textColor: 255 },
+    columnStyles: {
+      0: { cellWidth: "auto" },
+      1: { cellWidth: 30, halign: "right" },
     },
   });
 
