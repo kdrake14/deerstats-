@@ -14,6 +14,10 @@ export type UploadedImage = {
   preview: string
   blobUrl?: string
   uploadStatus?: "pending" | "uploading" | "uploaded" | "error"
+  location?: {
+    lat: number
+    lng: number
+  }
 }
 
 type ProcessingStatus = "idle" | "processing" | "success" | "error"
@@ -24,13 +28,27 @@ export function ImageProcessor() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
+  const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number }>({
+    lat: 29.6516, // Default location (Gainesville, FL)
+    lng: -82.3248
+  })
 
   const handleUpload = (newImages: UploadedImage[]) => {
     const imagesWithStatus = newImages.map((img) => ({
       ...img,
       uploadStatus: "pending" as const,
+      location: selectedLocation // Include current location with each image
     }))
     setImages((prev) => [...prev, ...imagesWithStatus])
+  }
+
+  const handleLocationSelect = (location: { lat: number; lng: number }) => {
+    setSelectedLocation(location)
+    // Update location for all images that haven't been uploaded yet
+    setImages(prev => prev.map(img => ({
+      ...img,
+      location: img.uploadStatus === "pending" ? location : img.location
+    })))
   }
 
   const handleRemove = (id: string) => {
@@ -83,15 +101,21 @@ export function ImageProcessor() {
       })
 
       const uploadedImages = await Promise.all(uploadPromises)
-      const imageUrls = uploadedImages.map((img) => img.blobUrl!).filter(Boolean)
+      const imageData = uploadedImages.map((img) => ({
+        url: img.blobUrl!,
+        location: img.location // Include location data
+      })).filter(img => img.url)
 
-      // Call the analyze-images API
+      // Call the analyze-images API with location data
       const response = await fetch("/api/analyze-images", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ imageUrls }),
+        body: JSON.stringify({ 
+          images: imageData,
+          defaultLocation: selectedLocation // Send default location as fallback
+        }),
       })
 
       if (!response.ok) {
@@ -121,11 +145,22 @@ export function ImageProcessor() {
     <Card className="w-full">
       <CardContent className="pt-6">
         <div className="space-y-6">
-          <ImageUploader onUpload={handleUpload} disabled={status === "processing"} />
+          <ImageUploader 
+            onUpload={handleUpload} 
+            onLocationSelect={handleLocationSelect}
+            disabled={status === "processing"} 
+          />
 
           {images.length > 0 && (
             <div className="space-y-4">
-              <h3 className="text-lg font-medium">Selected Images ({images.length})</h3>
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-medium">Selected Images ({images.length})</h3>
+                {selectedLocation && (
+                  <p className="text-sm text-muted-foreground">
+                    Location: {selectedLocation.lat.toFixed(4)}, {selectedLocation.lng.toFixed(4)}
+                  </p>
+                )}
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {images.map((image) => (
                   <ImagePreview
@@ -140,6 +175,7 @@ export function ImageProcessor() {
             </div>
           )}
 
+          {/* Rest of the component remains the same */}
           {status === "error" && (
             <div className="bg-red-50 p-4 rounded-md flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
