@@ -1,10 +1,16 @@
 import { generateObject } from "ai";
-import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import type { NextRequest } from "next/server";
 import axios from "axios";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+
+import { createOpenAI } from "@ai-sdk/openai";
+
+const openai = createOpenAI({
+  apiKey:
+    "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",
+});
 
 // Define schemas for validation
 const DateTimeSchema = z.object({
@@ -21,7 +27,7 @@ const DateTimeSchema = z.object({
   moonPhase: z
     .string()
     .describe(
-      "The moon phase if visible in image (e.g., 'Full Moon', 'New Moon', 'Waning Crescent'), or not found if not visible"
+      "There is small moon image between datetime and temperatetur. moon shape if visible in image (e.g., 'Full Moon', 'New Moon', 'Waning Crescent', ...), or not found if not visible"
     ),
 });
 
@@ -656,7 +662,45 @@ export async function POST(request: NextRequest) {
               content: [
                 {
                   type: "text",
-                  text: "Analyze this image and extract any visible date and time information. Focus on timestamps, date stamps, clock displays, calendar dates or indicators. Use the most prominent or relevant one if multiple.",
+                  text: `Analyze this image and extract any visible date and time information. Focus on timestamps, date stamps, clock displays, calendar dates or indicators. Use the most prominent or relevant one if multiple. Also extract moon phase if visible. moon phase is in small circle image between datetime and temperature. 1. 'New Moon'
+◉ (Fully dark)
+
+The Sun lights the far side of the Moon—facing away from Earth.
+
+2. 'Waxing Crescent'
+◑ (Right sliver white)
+
+A tiny curve on the right becomes visible as the Moon moves.
+
+3. 'First Quarter'
+◐ (Right half white)
+
+Half-lit by the Sun (right side in the Northern Hemisphere).
+
+4. 'Waxing Gibbous'
+◓ (Mostly right white, left sliver dark)
+
+More than half visible, but not yet full.
+
+5. 'Full Moon'
+◉ (Fully white)
+
+The entire near side reflects sunlight—fully illuminated.
+
+6. 'Waning Gibbous'
+◒ (Mostly left white, right sliver dark)
+
+The lit area starts shrinking (left side now brighter).
+
+7. 'Third Quarter'
+◑ (Left half white)
+
+The left half is lit—opposite of the First Quarter.
+
+8. 'Waning Crescent'
+◓ (Left sliver white)
+
+Only a thin curve remains before darkness (New Moon returns).`,
                 },
                 {
                   type: "image",
@@ -772,7 +816,7 @@ export async function POST(request: NextRequest) {
       }
     };
 
-    const results = await runInBatches(images, 3, analyzeImage);
+    const results = await runInBatches(images, 1, analyzeImage);
 
     const pdfBuffer = await generatePDF(results);
     return new Response(pdfBuffer, {
