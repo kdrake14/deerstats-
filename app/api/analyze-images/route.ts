@@ -647,7 +647,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const apiKey = "c960e1bba9a8804ae8aa152df088e9e3";
+    const apiKey = "a2e9a7ab4d468c7cf0d20898c85f2081";
 
     const analyzeImage = async (
       img: { url: string; location?: { lat: number; lng: number } },
