@@ -662,7 +662,9 @@ export async function POST(request: NextRequest) {
               content: [
                 {
                   type: "text",
-                  text: `Analyze this image and extract any visible date and time information. Focus on timestamps, date stamps, clock displays, calendar dates or indicators. Use the most prominent or relevant one if multiple. Also extract moon phase if visible. moon phase is in small circle image between datetime and temperature. 1. 'New Moon'
+                  text: `Analyze this image and extract any visible date and time information. Focus on timestamps, date stamps, clock displays, calendar dates or indicators. Use the most prominent or relevant one if multiple. Also extract moon phase if visible. moon phase is in small circle image between datetime and temperature. 
+                  If MOON PHASE IS white filled circle, it must be 'Full Moon'. If it is black filled circle, it must be 'New Moon'. If it is white crescent shape, it must be 'Waxing Crescent' or 'Waning Crescent' depending on the side. If it is white half circle, it must be 'First Quarter' or 'Third Quarter' depending on the side. If it is mostly white with small dark sliver, it must be 'Waxing Gibbous' or 'Waning Gibbous' depending on the side.
+                                    1. 'New Moon'
 ◉ (Fully dark)
 
 The Sun lights the far side of the Moon—facing away from Earth.
