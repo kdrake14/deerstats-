@@ -210,7 +210,7 @@ function countOccurrences(data: any[], key: string) {
 }
 
 // Generate PDF with enhanced structure
-async function generatePDF(results: any[]) {
+async function generatePDF(results: any[], defaultLocation: any) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -294,7 +294,7 @@ async function generatePDF(results: any[]) {
   doc.text(`Generated: ${now.toLocaleString()}`, margin, 55);
   doc.text(`Total Images Processed: ${results.length}`, margin, 62);
   doc.text(
-    `Analysis Location: Gainesville, FL (29.6516°N, 82.3248°W)`,
+    `Analysis Location: ${defaultLocation.name} (${defaultLocation.lat}°N, ${defaultLocation.lng}°W)`,
     margin,
     69
   );
@@ -634,6 +634,7 @@ export async function POST(request: NextRequest) {
     const defaultLocation = body.defaultLocation as {
       lat: number;
       lng: number;
+      name: string;
     };
 
     if (!Array.isArray(images) || images.length === 0) {
@@ -820,7 +821,7 @@ Only a thin curve remains before darkness (New Moon returns).`,
 
     const results = await runInBatches(images, 1, analyzeImage);
 
-    const pdfBuffer = await generatePDF(results);
+    const pdfBuffer = await generatePDF(results, defaultLocation);
     return new Response(pdfBuffer, {
       headers: {
         "Content-Type": "application/pdf",

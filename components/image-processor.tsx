@@ -22,6 +22,7 @@ export type UploadedImage = {
   location?: {
     lat: number;
     lng: number;
+    name?: string;
   };
 };
 
@@ -38,9 +39,11 @@ export function ImageProcessor() {
   const [selectedLocation, setSelectedLocation] = useState<{
     lat: number;
     lng: number;
+    name?: string;
   }>({
     lat: 29.6516,
     lng: -82.3248,
+    name: "Gainesville, FL, USA"
   });
 
   const handleUpload = (newImages: UploadedImage[]) => {
@@ -52,7 +55,11 @@ export function ImageProcessor() {
     setImages((prev) => [...prev, ...imagesWithStatus]);
   };
 
-  const handleLocationSelect = (location: { lat: number; lng: number }) => {
+  const handleLocationSelect = (location: {
+    lat: number;
+    lng: number;
+    name?: string;
+  }) => {
     setSelectedLocation(location);
     setImages((prev) =>
       prev.map((img) => ({
@@ -64,6 +71,11 @@ export function ImageProcessor() {
 
   const handleRemove = (id: string) => {
     setImages((prev) => prev.filter((image) => image.id !== id));
+    setUploadProgress((prev) => {
+      const newProgress = { ...prev };
+      delete newProgress[id];
+      return newProgress;
+    });
   };
 
   const uploadToS3 = async (image: UploadedImage): Promise<UploadedImage> => {
@@ -76,12 +88,10 @@ export function ImageProcessor() {
 
       const formData = new FormData();
       formData.append("file", image.file);
-      formData.append(
-        "location",
-        JSON.stringify(image.location || selectedLocation)
-      );
+      if (image.location) {
+        formData.append("location", JSON.stringify(image.location));
+      }
 
-      // Track upload progress
       const xhr = new XMLHttpRequest();
       xhr.upload.addEventListener("progress", (event) => {
         if (event.lengthComputable) {
@@ -93,7 +103,6 @@ export function ImageProcessor() {
         }
       });
 
-      // Upload to our Next.js API endpoint
       const response = await fetch("/api/upload", {
         method: "POST",
         body: formData,
@@ -143,11 +152,11 @@ export function ImageProcessor() {
 
       const uploadedImages = await Promise.all(uploadPromises);
       const imageData = uploadedImages
+        .filter((img) => img.s3Url)
         .map((img) => ({
           url: img.s3Url!,
           location: img.location,
-        }))
-        .filter((img) => img.url);
+        }));
 
       // Generate weather report
       const response = await fetch("/api/analyze-images", {
@@ -162,7 +171,10 @@ export function ImageProcessor() {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to generate report: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.message || `Failed to generate report: ${response.statusText}`
+        );
       }
 
       const pdfBlob = await response.blob();
@@ -171,7 +183,10 @@ export function ImageProcessor() {
       setPdfUrl(pdfUrl);
       setStatus("success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to process images");
+      console.error("Processing error:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to process images"
+      );
       setStatus("error");
     }
   };
@@ -181,6 +196,7 @@ export function ImageProcessor() {
     setStatus("idle");
     setPdfUrl(null);
     setError(null);
+    setUploadProgress({});
   };
 
   return (
@@ -199,10 +215,9 @@ export function ImageProcessor() {
                 <h3 className="text-lg font-medium">
                   Selected Images ({images.length})
                 </h3>
-                {selectedLocation && (
+                {selectedLocation?.name && (
                   <p className="text-sm text-muted-foreground">
-                    Location: {selectedLocation.lat.toFixed(4)},{" "}
-                    {selectedLocation.lng.toFixed(4)}
+                    Location: {selectedLocation.name}
                   </p>
                 )}
               </div>
@@ -230,7 +245,7 @@ export function ImageProcessor() {
             </div>
           )}
 
-          {status === "success" && (
+          {status === "success" && pdfUrl && (
             <div className="bg-green-50 p-4 rounded-md">
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-500 mt-0.5" />
@@ -240,8 +255,7 @@ export function ImageProcessor() {
                   </h4>
                   <p className="text-green-700 text-sm">
                     Successfully analyzed {images.length} images and generated a
-                    comprehensive weather analysis report with timestamps, wind
-                    direction, weather conditions, and temperature trends.
+                    comprehensive weather analysis report.
                   </p>
                 </div>
               </div>
@@ -250,14 +264,18 @@ export function ImageProcessor() {
 
           <div className="flex flex-wrap gap-3">
             {status === "idle" && (
-              <Button onClick={handleProcess} disabled={images.length === 0}>
+              <Button
+                onClick={handleProcess}
+                disabled={images.length === 0}
+                className="min-w-[180px]"
+              >
                 <FileText className="mr-2 h-4 w-4" />
                 Generate Weather Report
               </Button>
             )}
 
             {status === "processing" && (
-              <Button disabled>
+              <Button disabled className="min-w-[180px]">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Generating Report...
               </Button>
@@ -265,7 +283,7 @@ export function ImageProcessor() {
 
             {status === "success" && pdfUrl && (
               <>
-                <Button asChild variant="default">
+                <Button asChild variant="default" className="min-w-[180px]">
                   <a href={pdfUrl} download="weather_analysis_report.pdf">
                     <Download className="mr-2 h-4 w-4" />
                     Download PDF Report

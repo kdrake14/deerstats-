@@ -6,24 +6,27 @@ import { Button } from "@/components/ui/button";
 import { Upload, Plus, MapPin } from "lucide-react";
 import type { UploadedImage } from "./image-processor";
 
+interface LocationData {
+  lat: number;
+  lng: number;
+  name?: string;
+}
+
 interface ImageUploaderProps {
   onUpload: (images: UploadedImage[]) => void;
-  onLocationSelect?: (location: { lat: number; lng: number }) => void;
+  onLocationSelect?: (location: LocationData) => void;
   disabled?: boolean;
 }
 
-// Generate a unique ID
 function generateUniqueId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
-// Generate unique filename with timestamp and random suffix
 function generateUniqueFilename(originalName: string): string {
   const timestamp = Date.now();
   const randomSuffix = Math.random().toString(36).substr(2, 8);
   const extension = originalName.split(".").pop();
   const nameWithoutExt = originalName.replace(/\.[^/.]+$/, "");
-
   return `${nameWithoutExt}-${timestamp}-${randomSuffix}.${extension}`;
 }
 
@@ -36,16 +39,15 @@ export function ImageUploader({
   const [isDragging, setIsDragging] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [showMap, setShowMap] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState<{
-    lat: number;
-    lng: number;
-  }>({
-    lat: 29.6516, // Default latitude (Gainesville, FL)
-    lng: -82.3248, // Default longitude
+  const [selectedLocation, setSelectedLocation] = useState<LocationData>({
+    lat: 29.6516,
+    lng: -82.3248,
+    name: "Gainesville, FL, USA"
   });
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const markerRef = useRef<google.maps.Marker | null>(null);
+  const geocoderRef = useRef<google.maps.Geocoder | null>(null);
 
   // Load Google Maps script
   useEffect(() => {
@@ -61,23 +63,42 @@ export function ImageUploader({
     }
   }, []);
 
-  // Initialize map when shown and loaded
+  // Initialize map and geocoder when shown and loaded
   useEffect(() => {
     if (showMap && mapLoaded && mapRef.current && !mapInstanceRef.current) {
       const map = new google.maps.Map(mapRef.current, {
-        center: selectedLocation || { lat: 0, lng: 0 },
+        center: selectedLocation,
         zoom: 8,
       });
 
       mapInstanceRef.current = map;
+      geocoderRef.current = new google.maps.Geocoder();
+
+      // Add initial marker if location exists
+      if (selectedLocation) {
+        markerRef.current = new google.maps.Marker({
+          position: selectedLocation,
+          map: map,
+        });
+      }
 
       // Add click listener to set location
-      map.addListener("click", (e: google.maps.MapMouseEvent) => {
-        if (e.latLng) {
-          const location = {
+      map.addListener("click", async (e: google.maps.MapMouseEvent) => {
+        if (!e.latLng || !geocoderRef.current) return;
+
+        try {
+          const response = await geocoderRef.current.geocode({
+            location: e.latLng
+          });
+
+          const locationName = response.results[0]?.formatted_address || "Unknown location";
+          
+          const location: LocationData = {
             lat: e.latLng.lat(),
             lng: e.latLng.lng(),
+            name: locationName
           };
+
           setSelectedLocation(location);
           if (onLocationSelect) onLocationSelect(location);
 
@@ -90,6 +111,8 @@ export function ImageUploader({
               map: map,
             });
           }
+        } catch (error) {
+          console.error("Geocoding error:", error);
         }
       });
     }
@@ -105,7 +128,6 @@ export function ImageUploader({
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
 
     const uploadedImages = imageFiles.map((file) => {
-      // Create a new File object with unique name
       const uniqueFilename = generateUniqueFilename(file.name);
       const uniqueFile = new File([file], uniqueFilename, { type: file.type });
 
@@ -113,7 +135,7 @@ export function ImageUploader({
         id: generateUniqueId(),
         file: uniqueFile,
         preview: URL.createObjectURL(file),
-        location: selectedLocation, // Include location data if available
+        location: selectedLocation,
       };
     });
 
@@ -121,7 +143,6 @@ export function ImageUploader({
       onUpload(uploadedImages);
     }
 
-    // Reset the file input
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -193,10 +214,9 @@ export function ImageUploader({
             {selectedLocation ? "Location Selected" : "Set Location"}
           </Button>
         </div>
-        {selectedLocation && (
+        {selectedLocation?.name && (
           <p className="mt-2 text-xs text-gray-500">
-            Location: {selectedLocation.lat.toFixed(4)},{" "}
-            {selectedLocation.lng.toFixed(4)}
+            Location: {selectedLocation.name}
           </p>
         )}
       </div>
@@ -206,11 +226,7 @@ export function ImageUploader({
           <div ref={mapRef} className="w-full h-64" />
           <div className="p-4 bg-gray-50 border-t flex justify-between items-center">
             <p className="text-sm text-gray-600">
-              {selectedLocation
-                ? `Selected: ${selectedLocation.lat.toFixed(
-                    4
-                  )}, ${selectedLocation.lng.toFixed(4)}`
-                : "Click on the map to select a location"}
+              {selectedLocation?.name || "Click on the map to select a location"}
             </p>
             <Button size="sm" variant="outline" onClick={toggleMap}>
               Done
