@@ -1,163 +1,208 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { ImageUploader } from "@/components/image-uploader"
-import { ImagePreview } from "@/components/image-preview"
-import { Loader2, Download, CheckCircle, AlertCircle, FileText } from "lucide-react"
-import { upload } from "@vercel/blob/client"
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { ImageUploader } from "@/components/image-uploader";
+import { ImagePreview } from "@/components/image-preview";
+import {
+  Loader2,
+  Download,
+  CheckCircle,
+  AlertCircle,
+  FileText,
+} from "lucide-react";
 
 export type UploadedImage = {
-  id: string
-  file: File
-  preview: string
-  blobUrl?: string
-  uploadStatus?: "pending" | "uploading" | "uploaded" | "error"
+  id: string;
+  file: File;
+  preview: string;
+  s3Url?: string;
+  uploadStatus?: "pending" | "uploading" | "uploaded" | "error";
   location?: {
-    lat: number
-    lng: number
-  }
-}
+    lat: number;
+    lng: number;
+  };
+};
 
-type ProcessingStatus = "idle" | "processing" | "success" | "error"
+type ProcessingStatus = "idle" | "processing" | "success" | "error";
 
 export function ImageProcessor() {
-  const [images, setImages] = useState<UploadedImage[]>([])
-  const [status, setStatus] = useState<ProcessingStatus>("idle")
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
-  const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number }>({
-    lat: 29.6516, // Default location (Gainesville, FL)
-    lng: -82.3248
-  })
+  const [images, setImages] = useState<UploadedImage[]>([]);
+  const [status, setStatus] = useState<ProcessingStatus>("idle");
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>(
+    {}
+  );
+  const [selectedLocation, setSelectedLocation] = useState<{
+    lat: number;
+    lng: number;
+  }>({
+    lat: 29.6516,
+    lng: -82.3248,
+  });
 
   const handleUpload = (newImages: UploadedImage[]) => {
     const imagesWithStatus = newImages.map((img) => ({
       ...img,
       uploadStatus: "pending" as const,
-      location: selectedLocation // Include current location with each image
-    }))
-    setImages((prev) => [...prev, ...imagesWithStatus])
-  }
+      location: selectedLocation,
+    }));
+    setImages((prev) => [...prev, ...imagesWithStatus]);
+  };
 
   const handleLocationSelect = (location: { lat: number; lng: number }) => {
-    setSelectedLocation(location)
-    // Update location for all images that haven't been uploaded yet
-    setImages(prev => prev.map(img => ({
-      ...img,
-      location: img.uploadStatus === "pending" ? location : img.location
-    })))
-  }
+    setSelectedLocation(location);
+    setImages((prev) =>
+      prev.map((img) => ({
+        ...img,
+        location: img.uploadStatus === "pending" ? location : img.location,
+      }))
+    );
+  };
 
   const handleRemove = (id: string) => {
-    setImages((prev) => prev.filter((image) => image.id !== id))
-  }
+    setImages((prev) => prev.filter((image) => image.id !== id));
+  };
 
-  const uploadToBlob = async (image: UploadedImage): Promise<UploadedImage> => {
+  const uploadToS3 = async (image: UploadedImage): Promise<UploadedImage> => {
     try {
-      setImages((prev) => prev.map((img) => (img.id === image.id ? { ...img, uploadStatus: "uploading" } : img)))
+      setImages((prev) =>
+        prev.map((img) =>
+          img.id === image.id ? { ...img, uploadStatus: "uploading" } : img
+        )
+      );
 
-      const blob = await upload(image.file.name, image.file, {
-        access: "public",
-        handleUploadUrl: "/api/upload",
-        onUploadProgress: (progress) => {
+      const formData = new FormData();
+      formData.append("file", image.file);
+      formData.append(
+        "location",
+        JSON.stringify(image.location || selectedLocation)
+      );
+
+      // Track upload progress
+      const xhr = new XMLHttpRequest();
+      xhr.upload.addEventListener("progress", (event) => {
+        if (event.lengthComputable) {
+          const progress = Math.round((event.loaded / event.total) * 100);
           setUploadProgress((prev) => ({
             ...prev,
-            [image.id]: progress.percentage,
-          }))
-        },
-      })
+            [image.id]: progress,
+          }));
+        }
+      });
+
+      // Upload to our Next.js API endpoint
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to upload image");
+      }
+
+      const { publicUrl } = await response.json();
 
       const updatedImage = {
         ...image,
-        blobUrl: blob.url,
+        s3Url: publicUrl,
         uploadStatus: "uploaded" as const,
-      }
+      };
 
-      setImages((prev) => prev.map((img) => (img.id === image.id ? updatedImage : img)))
+      setImages((prev) =>
+        prev.map((img) => (img.id === image.id ? updatedImage : img))
+      );
 
-      return updatedImage
+      return updatedImage;
     } catch (error) {
-      setImages((prev) => prev.map((img) => (img.id === image.id ? { ...img, uploadStatus: "error" } : img)))
-      throw error
+      setImages((prev) =>
+        prev.map((img) =>
+          img.id === image.id ? { ...img, uploadStatus: "error" } : img
+        )
+      );
+      throw error;
     }
-  }
+  };
 
   const handleProcess = async () => {
-    if (images.length === 0) return
+    if (images.length === 0) return;
 
-    setStatus("processing")
-    setError(null)
+    setStatus("processing");
+    setError(null);
 
     try {
-      // First, upload all images to Vercel Blob
+      // Upload all pending images to S3
       const uploadPromises = images.map((image) => {
-        if (image.uploadStatus === "uploaded" && image.blobUrl) {
-          return Promise.resolve(image)
+        if (image.uploadStatus === "uploaded" && image.s3Url) {
+          return Promise.resolve(image);
         }
-        return uploadToBlob(image)
-      })
+        return uploadToS3(image);
+      });
 
-      const uploadedImages = await Promise.all(uploadPromises)
-      const imageData = uploadedImages.map((img) => ({
-        url: img.blobUrl!,
-        location: img.location // Include location data
-      })).filter(img => img.url)
+      const uploadedImages = await Promise.all(uploadPromises);
+      const imageData = uploadedImages
+        .map((img) => ({
+          url: img.s3Url!,
+          location: img.location,
+        }))
+        .filter((img) => img.url);
 
-      // Call the analyze-images API with location data
+      // Generate weather report
       const response = await fetch("/api/analyze-images", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           images: imageData,
-          defaultLocation: selectedLocation // Send default location as fallback
+          defaultLocation: selectedLocation,
         }),
-      })
+      });
 
       if (!response.ok) {
-        throw new Error(`API request failed: ${response.statusText}`)
+        throw new Error(`Failed to generate report: ${response.statusText}`);
       }
 
-      // Create a blob URL from the PDF response
-      const pdfBlob = await response.blob()
-      const pdfUrl = URL.createObjectURL(pdfBlob)
+      const pdfBlob = await response.blob();
+      const pdfUrl = URL.createObjectURL(pdfBlob);
 
-      setPdfUrl(pdfUrl)
-      setStatus("success")
+      setPdfUrl(pdfUrl);
+      setStatus("success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to analyze images")
-      setStatus("error")
+      setError(err instanceof Error ? err.message : "Failed to process images");
+      setStatus("error");
     }
-  }
+  };
 
   const handleReset = () => {
-    setImages([])
-    setStatus("idle")
-    setPdfUrl(null)
-    setError(null)
-  }
+    setImages([]);
+    setStatus("idle");
+    setPdfUrl(null);
+    setError(null);
+  };
 
   return (
     <Card className="w-full">
       <CardContent className="pt-6">
         <div className="space-y-6">
-          <ImageUploader 
-            onUpload={handleUpload} 
+          <ImageUploader
+            onUpload={handleUpload}
             onLocationSelect={handleLocationSelect}
-            disabled={status === "processing"} 
+            disabled={status === "processing"}
           />
 
           {images.length > 0 && (
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-medium">Selected Images ({images.length})</h3>
+                <h3 className="text-lg font-medium">
+                  Selected Images ({images.length})
+                </h3>
                 {selectedLocation && (
                   <p className="text-sm text-muted-foreground">
-                    Location: {selectedLocation.lat.toFixed(4)}, {selectedLocation.lng.toFixed(4)}
+                    Location: {selectedLocation.lat.toFixed(4)},{" "}
+                    {selectedLocation.lng.toFixed(4)}
                   </p>
                 )}
               </div>
@@ -175,7 +220,6 @@ export function ImageProcessor() {
             </div>
           )}
 
-          {/* Rest of the component remains the same */}
           {status === "error" && (
             <div className="bg-red-50 p-4 rounded-md flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
@@ -191,10 +235,13 @@ export function ImageProcessor() {
               <div className="flex items-start gap-3">
                 <CheckCircle className="h-5 w-5 text-green-500 mt-0.5" />
                 <div>
-                  <h4 className="font-medium text-green-800">Analysis complete</h4>
+                  <h4 className="font-medium text-green-800">
+                    Analysis complete
+                  </h4>
                   <p className="text-green-700 text-sm">
-                    Successfully analyzed {images.length} images and generated a comprehensive weather analysis report
-                    with timestamps, wind direction, weather conditions, and temperature trends.
+                    Successfully analyzed {images.length} images and generated a
+                    comprehensive weather analysis report with timestamps, wind
+                    direction, weather conditions, and temperature trends.
                   </p>
                 </div>
               </div>
@@ -239,5 +286,5 @@ export function ImageProcessor() {
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

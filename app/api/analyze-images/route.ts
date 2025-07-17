@@ -18,6 +18,11 @@ const DateTimeSchema = z.object({
     .describe(
       "The time found in the image in HH:MM format, or 'not found' if no time is visible"
     ),
+  moonPhase: z
+    .string()
+    .describe(
+      "The moon phase if visible in image (e.g., 'Full Moon', 'New Moon', 'Waning Crescent'), or not found if not visible"
+    ),
 });
 
 const RequestSchema = z.object({
@@ -82,6 +87,7 @@ async function generateDeerActivityAnalysis(results: any[]) {
     date: r.date,
     time: r.time,
     weather: r.weather,
+    moonPhase: r.moonPhase,
     temperature: r.temperature,
     windDirection: r.windDirection,
     tempTrend: r.tempTrend,
@@ -129,6 +135,11 @@ async function generateDeerActivityAnalysis(results: any[]) {
         .describe(
           "A natural, engaging summary sentence about when you're most likely to see deer based on this data"
         ),
+      moonPhaseCorrelation: z
+        .string()
+        .describe(
+          "Any correlation between moon phases and deer activity if data is available"
+        ),
     });
 
     const result = await generateObject({
@@ -152,7 +163,8 @@ Please identify:
 4. The optimal temperature range
 5. Preferred wind directions (limit to top 2)
 6. Whether atmospheric changes (pressure/temperature trends) correlate with activity
-7. A natural summary sentence about when deer are most likely to be seen
+7. Any correlation between moon phases and deer activity if data is available
+8. A natural summary sentence about when deer are most likely to be seen
 
 Base your analysis on the frequency and patterns in the actual data provided.`,
         },
@@ -369,6 +381,7 @@ async function generatePDF(results: any[]) {
     r.imageIndex.toString(),
     r.date,
     r.time,
+    r.moonPhase || "N/A",
     r.windDirection,
     r.weather.length > 12 ? r.weather.substring(0, 10) + ".." : r.weather,
     r.weatherSixHoursPrior.length > 12
@@ -387,6 +400,7 @@ async function generatePDF(results: any[]) {
         "#",
         "Date",
         "Time",
+        "Moon",
         "Wind",
         "Weather",
         "Weather 6h",
@@ -415,15 +429,16 @@ async function generatePDF(results: any[]) {
       fillColor: [245, 245, 245],
     },
     columnStyles: {
-      0: { cellWidth: availableWidth * 0.06 },
-      1: { cellWidth: availableWidth * 0.14 },
-      2: { cellWidth: availableWidth * 0.1 },
-      3: { cellWidth: availableWidth * 0.08 },
-      4: { cellWidth: availableWidth * 0.16 },
-      5: { cellWidth: availableWidth * 0.16 },
-      6: { cellWidth: availableWidth * 0.1 },
-      7: { cellWidth: availableWidth * 0.1 },
-      8: { cellWidth: availableWidth * 0.1 },
+      0: { cellWidth: availableWidth * 0.05 },
+      1: { cellWidth: availableWidth * 0.12 },
+      2: { cellWidth: availableWidth * 0.08 },
+      3: { cellWidth: availableWidth * 0.08 }, // Moon phase column
+      4: { cellWidth: availableWidth * 0.07 },
+      5: { cellWidth: availableWidth * 0.14 },
+      6: { cellWidth: availableWidth * 0.14 },
+      7: { cellWidth: availableWidth * 0.08 },
+      8: { cellWidth: availableWidth * 0.08 },
+      9: { cellWidth: availableWidth * 0.08 },
     },
   });
 
@@ -569,6 +584,7 @@ async function generatePDF(results: any[]) {
         const details = [
           `Date Extracted: ${result.date}`,
           `Time Extracted: ${result.time}`,
+          `Moon Phase: ${result.moonPhase}`,
           `Wind Direction: ${result.windDirection}`,
           `Current Weather: ${result.weather}`,
           `Weather 6h Prior: ${result.weatherSixHoursPrior}`,
@@ -652,7 +668,7 @@ export async function POST(request: NextRequest) {
           schema: DateTimeSchema,
         });
 
-        const { date, time } = result.object;
+        const { date, time, moonPhase } = result.object;
 
         if (date === "not found" || time === "not found") {
           return {
@@ -660,6 +676,7 @@ export async function POST(request: NextRequest) {
             imageUrl: img.url,
             date,
             time,
+            moonPhase: moonPhase || "N/A",
             windDirection: "N/A",
             weather: "N/A",
             weatherSixHoursPrior: "N/A",
@@ -729,6 +746,7 @@ export async function POST(request: NextRequest) {
           imageUrl: img.url,
           date,
           time,
+          moonPhase: moonPhase || "N/A",
           windDirection: windDir,
           weather: weatherDesc,
           weatherSixHoursPrior: priorDesc,
@@ -743,6 +761,7 @@ export async function POST(request: NextRequest) {
           imageUrl: img.url,
           date: "error",
           time: "error",
+          moonPhase: "error",
           windDirection: "error",
           weather: "error",
           weatherSixHoursPrior: "error",
