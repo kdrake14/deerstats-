@@ -831,7 +831,7 @@ Only a thin curve remains before darkness (New Moon returns).`,
     });
   } catch (err: any) {
     return new Response(
-      JSON.stringify({ success: false, error: err.message }),
+      JSON.stringify({ success: false, error: err.message, err }),
       {
         headers: { "Content-Type": "application/json" },
         status: 500,
