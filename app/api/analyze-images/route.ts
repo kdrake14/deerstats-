@@ -148,7 +148,7 @@ async function generateDeerActivityAnalysis(results: any[]) {
     });
 
     const result = await generateObject({
-      model: openai("o3"),
+      model: openai("o3-mini-2025-01-31"),
       messages: [
         {
           role: "system",
@@ -663,7 +663,7 @@ export async function POST(request: NextRequest) {
       try {
         // Extract date/time info
         const result = await generateObject({
-          model: openai("gpt-4o"),
+          model: openai("gpt-4-turbo"),
           messages: [
             {
               role: "user",
