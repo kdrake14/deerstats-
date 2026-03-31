@@ -663,7 +663,7 @@ export async function POST(request: NextRequest) {
       try {
         // Extract date/time info
         const result = await generateObject({
-          model: openai("gpt-4-turbo"),
+          model: openai("gpt-4o"),
           messages: [
             {
               role: "user",
