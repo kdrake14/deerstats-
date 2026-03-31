@@ -148,7 +148,7 @@ async function generateDeerActivityAnalysis(results: any[]) {
     });
 
     const result = await generateObject({
-      model: openai("gpt-4o"),
+      model: openai("o3"),
       messages: [
         {
           role: "system",
