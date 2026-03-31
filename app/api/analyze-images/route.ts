@@ -4,12 +4,45 @@ import type { NextRequest } from "next/server";
 import axios from "axios";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import OpenAI from "openai";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 
 import { createOpenAI } from "@ai-sdk/openai";
+
+// S3 client for fetching private images
+const s3 = new S3Client({
+  region: process.env.AWS_REGION || "us-east-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
+
+async function fetchImageAsBase64(url: string): Promise<string> {
+  // If it's an S3 URL, fetch via SDK to bypass public access restriction
+  const s3Match = url.match(/https:\/\/([^.]+)\.s3\.([^.]+)\.amazonaws\.com\/(.+)/);
+  if (s3Match) {
+    const bucket = s3Match[1];
+    const key = decodeURIComponent(s3Match[3]);
+    const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
+    const response = await s3.send(cmd);
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of response.Body as any) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks).toString("base64");
+  }
+  // Fallback: plain fetch for public URLs
+  const resp = await fetch(url);
+  return Buffer.from(await resp.arrayBuffer()).toString("base64");
+}
 
 const openai = createOpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+// Direct OpenAI client for vision calls (AI SDK doesn't handle base64 correctly)
+const openaiDirect = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Define schemas for validation
 const DateTimeSchema = z.object({
@@ -66,14 +99,19 @@ async function fetchWeatherData(
   lat: number,
   lon: number,
   apiKey: string
-) {
+): Promise<any | null> {
   const url = `https://api.openweathermap.org/data/3.0/onecall/timemachine?lat=${lat}&lon=${lon}&dt=${timestamp}&appid=${apiKey}`;
   try {
     const response = await axios.get(url);
     return response.data;
-  } catch (err) {
-    console.error(`Error fetching weather at ${timestamp}:`, err);
-    throw err;
+  } catch (err: any) {
+    const status = err?.response?.status;
+    if (status === 401 || status === 403) {
+      console.warn(`Weather API auth error (${status}) — subscription required for One Call 3.0. Returning N/A.`);
+    } else {
+      console.error(`Error fetching weather at ${timestamp}:`, err?.message || err);
+    }
+    return null;
   }
 }
 
@@ -564,12 +602,10 @@ async function generatePDF(results: any[], defaultLocation: any) {
 
     // Try to load and display the analyzed image
     try {
-      const imageResponse = await fetch(result.imageUrl);
-      if (imageResponse.ok) {
-        const imageBuffer = await imageResponse.arrayBuffer();
-        const imageBase64 = Buffer.from(imageBuffer).toString("base64");
-        const mimeType =
-          imageResponse.headers.get("content-type") || "image/jpeg";
+      const imageBase64Pdf = await fetchImageAsBase64(result.imageUrl);
+      {
+        const imageBase64 = imageBase64Pdf;
+        const mimeType = "image/jpeg";
         const imageDataUrl = `data:${mimeType};base64,${imageBase64}`;
 
         // Add image (centered, with reasonable size)
@@ -661,74 +697,41 @@ export async function POST(request: NextRequest) {
       index: number
     ) => {
       try {
-        // Fetch image and convert to base64 (required for gpt-4o on this tier)
-        const imgFetch = await fetch(img.url);
-        const imgBuffer = await imgFetch.arrayBuffer();
-        const imgBase64 = Buffer.from(imgBuffer).toString("base64");
-        const imgDataUrl = `data:image/jpeg;base64,${imgBase64}`;
+        // Fetch image and convert to base64 (required for gpt-4o)
+        const imgBase64 = await fetchImageAsBase64(img.url);
 
-        // Extract date/time info
-        const result = await generateObject({
-          model: openai("gpt-4o"),
+        // Use OpenAI client directly for vision — AI SDK mishandles base64
+        const visionResponse = await openaiDirect.chat.completions.create({
+          model: "gpt-4o",
           messages: [
             {
               role: "user",
               content: [
                 {
                   type: "text",
-                  text: `Analyze this image and extract any visible date and time information. Focus on timestamps, date stamps, clock displays, calendar dates or indicators. Use the most prominent or relevant one if multiple. Also extract moon phase if visible. moon phase is in small circle image between datetime and temperature. 
-                  If MOON PHASE IS white filled circle, it must be 'Full Moon'. If it is black filled circle, it must be 'New Moon'. If it is white crescent shape, it must be 'Waxing Crescent' or 'Waning Crescent' depending on the side. If it is white half circle, it must be 'First Quarter' or 'Third Quarter' depending on the side. If it is mostly white with small dark sliver, it must be 'Waxing Gibbous' or 'Waning Gibbous' depending on the side.
-                                    1. 'New Moon'
-◉ (Fully dark)
+                  text: `Analyze this trail cam image and return ONLY a JSON object with these exact fields:
+{"date": "YYYY-MM-DD or not found", "time": "HH:MM or not found", "moonPhase": "moon phase name or not found"}
 
-The Sun lights the far side of the Moon—facing away from Earth.
-
-2. 'Waxing Crescent'
-◑ (Right sliver white)
-
-A tiny curve on the right becomes visible as the Moon moves.
-
-3. 'First Quarter'
-◐ (Right half white)
-
-Half-lit by the Sun (right side in the Northern Hemisphere).
-
-4. 'Waxing Gibbous'
-◓ (Mostly right white, left sliver dark)
-
-More than half visible, but not yet full.
-
-5. 'Full Moon'
-◉ (Fully white)
-
-The entire near side reflects sunlight—fully illuminated.
-
-6. 'Waning Gibbous'
-◒ (Mostly left white, right sliver dark)
-
-The lit area starts shrinking (left side now brighter).
-
-7. 'Third Quarter'
-◑ (Left half white)
-
-The left half is lit—opposite of the First Quarter.
-
-8. 'Waning Crescent'
-◓ (Left sliver white)
-
-Only a thin curve remains before darkness (New Moon returns).`,
+Extract the date and time from the timestamp overlay at the bottom of the image.
+For moon phase: look for a small circle icon between the datetime and temperature. Identify it as one of: Full Moon, New Moon, Waxing Crescent, Waning Crescent, First Quarter, Third Quarter, Waxing Gibbous, Waning Gibbous.
+Return ONLY the JSON, no other text.`,
                 },
                 {
-                  type: "image",
-                  image: imgDataUrl,
+                  type: "image_url",
+                  image_url: { url: `data:image/jpeg;base64,${imgBase64}`, detail: "low" },
                 },
               ],
             },
           ],
-          schema: DateTimeSchema,
+          max_tokens: 100,
         });
 
-        const { date, time, moonPhase } = result.object;
+        const rawContent = visionResponse.choices[0].message.content || "{}";
+        const jsonMatch = rawContent.match(/\{[^}]+\}/);
+        const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+        const date: string = parsed.date || "not found";
+        const time: string = parsed.time || "not found";
+        const moonPhase: string = parsed.moonPhase || "not found";
 
         if (date === "not found" || time === "not found") {
           return {
@@ -755,7 +758,7 @@ Only a thin curve remains before darkness (New Moon returns).`,
         const timestamp = Math.floor(new Date(dateTimeStr).getTime() / 1000);
         const sixHoursPrior = timestamp - 6 * 3600;
 
-        // Fetch weather data
+        // Fetch weather data (may return null if API subscription is not active)
         const weatherData = await fetchWeatherData(timestamp, lat, lon, apiKey);
         const priorWeatherData = await fetchWeatherData(
           sixHoursPrior,
@@ -764,42 +767,45 @@ Only a thin curve remains before darkness (New Moon returns).`,
           apiKey
         );
 
-        const currentWeather = weatherData.data[0];
-        const priorWeather = priorWeatherData.data[0];
+        const currentWeather = weatherData?.data?.[0] ?? null;
+        const priorWeather = priorWeatherData?.data?.[0] ?? null;
 
         // Wind direction
-        const windDeg = currentWeather.wind_deg;
-        const windDir =
-          windDeg >= 337.5 || windDeg < 22.5
-            ? "N"
-            : windDeg < 67.5
-            ? "NE"
-            : windDeg < 112.5
-            ? "E"
-            : windDeg < 157.5
-            ? "SE"
-            : windDeg < 202.5
-            ? "S"
-            : windDeg < 247.5
-            ? "SW"
-            : windDeg < 292.5
-            ? "W"
-            : "NW";
+        let windDir = "N/A";
+        if (currentWeather?.wind_deg != null) {
+          const windDeg = currentWeather.wind_deg;
+          windDir =
+            windDeg >= 337.5 || windDeg < 22.5
+              ? "N"
+              : windDeg < 67.5
+              ? "NE"
+              : windDeg < 112.5
+              ? "E"
+              : windDeg < 157.5
+              ? "SE"
+              : windDeg < 202.5
+              ? "S"
+              : windDeg < 247.5
+              ? "SW"
+              : windDeg < 292.5
+              ? "W"
+              : "NW";
+        }
 
-        const weatherDesc = currentWeather.weather[0]?.description || "N/A";
-        const priorDesc = priorWeather.weather[0]?.description || "N/A";
+        const weatherDesc = currentWeather?.weather?.[0]?.description || "N/A";
+        const priorDesc = priorWeather?.weather?.[0]?.description || "N/A";
 
-        const temp = kelvinToFahrenheit(currentWeather.temp);
-        const priorTemp = kelvinToFahrenheit(priorWeather.temp);
+        const temp = currentWeather?.temp != null ? kelvinToFahrenheit(currentWeather.temp) : null;
+        const priorTemp = priorWeather?.temp != null ? kelvinToFahrenheit(priorWeather.temp) : null;
 
-        const tempTrend = getTemperatureTrend(
-          currentWeather.temp,
-          priorWeather.temp
-        );
-        const pressureTrend = getPressureTrend(
-          currentWeather.pressure,
-          priorWeather.pressure
-        );
+        const tempTrend =
+          currentWeather?.temp != null && priorWeather?.temp != null
+            ? getTemperatureTrend(currentWeather.temp, priorWeather.temp)
+            : "N/A";
+        const pressureTrend =
+          currentWeather?.pressure != null && priorWeather?.pressure != null
+            ? getPressureTrend(currentWeather.pressure, priorWeather.pressure)
+            : "N/A";
 
         return {
           imageIndex: index + 1,
@@ -810,7 +816,7 @@ Only a thin curve remains before darkness (New Moon returns).`,
           windDirection: windDir,
           weather: weatherDesc,
           weatherSixHoursPrior: priorDesc,
-          temperature: temp.toString(),
+          temperature: temp != null ? temp.toString() : "N/A",
           tempTrend,
           pressureTrend,
         };
