@@ -661,6 +661,12 @@ export async function POST(request: NextRequest) {
       index: number
     ) => {
       try {
+        // Fetch image and convert to base64 (required for gpt-4o on this tier)
+        const imgFetch = await fetch(img.url);
+        const imgBuffer = await imgFetch.arrayBuffer();
+        const imgBase64 = Buffer.from(imgBuffer).toString("base64");
+        const imgDataUrl = `data:image/jpeg;base64,${imgBase64}`;
+
         // Extract date/time info
         const result = await generateObject({
           model: openai("gpt-4o"),
@@ -714,7 +720,7 @@ Only a thin curve remains before darkness (New Moon returns).`,
                 },
                 {
                   type: "image",
-                  image: img.url,
+                  image: imgDataUrl,
                 },
               ],
             },
