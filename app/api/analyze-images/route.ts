@@ -8,8 +8,7 @@ import autoTable from "jspdf-autotable";
 import { createOpenAI } from "@ai-sdk/openai";
 
 const openai = createOpenAI({
-  apiKey:
-    "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",
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 // Define schemas for validation
@@ -627,7 +626,7 @@ async function generatePDF(results: any[], defaultLocation: any) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const images = body.images as {
+    const rawImages = body.images as {
       url: string;
       location?: { lat: number; lng: number };
     }[];
@@ -636,6 +635,14 @@ export async function POST(request: NextRequest) {
       lng: number;
       name: string;
     };
+
+    // Resolve relative URLs to absolute so fetch() and OpenAI can reach them
+    const host = request.headers.get('host') || 'localhost:3000';
+    const protocol = host.startsWith('localhost') ? 'http' : 'https';
+    const images = rawImages.map((img) => ({
+      ...img,
+      url: img.url.startsWith('http') ? img.url : `${protocol}://${host}${img.url}`,
+    }));
 
     if (!Array.isArray(images) || images.length === 0) {
       return new Response(
@@ -647,7 +654,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const apiKey = "a2e9a7ab4d468c7cf0d20898c85f2081";
+    const apiKey = process.env.OPENWEATHERMAP_API_KEY!;
 
     const analyzeImage = async (
       img: { url: string; location?: { lat: number; lng: number } },
